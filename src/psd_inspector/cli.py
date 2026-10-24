@@ -37,7 +37,7 @@ def main():
         '--profile', '-p',
         choices=[ExtractorProfile.FAST, ExtractorProfile.FULL, ExtractorProfile.DEEP],
         default=ExtractorProfile.FULL,
-        help='Extraction profile (default: full)'
+        help='Extraction profile (deep currently matches full; default: full)'
     )
     inspect_parser.add_argument(
         '--export-assets',
@@ -92,7 +92,7 @@ def main():
     neighbors.add_argument(
         '--id',
         required=True,
-        help='Layer ID to find neighbors for'
+        help='Layer ID to find neighbors for (layer-<n> or bare native id <n>)'
     )
     neighbors.add_argument(
         '--distance',
@@ -235,6 +235,22 @@ def _handle_layer(args):
         sys.exit(1)
 
 
+def _find_layer(layers, target_id):
+    """Match an internal id or a native id, with or without the layer- prefix."""
+    source_id = None
+    if target_id.startswith('layer-') and target_id[6:].isdigit():
+        source_id = int(target_id[6:])
+    elif target_id.isdigit():
+        source_id = int(target_id)
+
+    for layer in layers:
+        if layer.get('id') == target_id or (
+            source_id is not None and layer.get('source_layer_id') == source_id
+        ):
+            return layer
+    return None
+
+
 def _layer_get(args):
     """Get details of specific layer."""
     ir_path = Path(args.ir)
@@ -247,15 +263,12 @@ def _layer_get(args):
             ir_data = json.load(f)
         
         layers = ir_data.get('source', {}).get('rawLayers', [])
-        target_id = args.id
-        
-        # Find matching layer
-        for layer in layers:
-            if layer.get('id') == target_id or layer.get('source_layer_id') == int(target_id.replace('layer-', '')):
-                print(json.dumps(layer, indent=2, ensure_ascii=False))
-                return
-        
-        print(f"Layer not found: {target_id}", file=sys.stderr)
+        layer = _find_layer(layers, args.id)
+        if layer is not None:
+            print(json.dumps(layer, indent=2, ensure_ascii=False))
+            return
+
+        print(f"Layer not found: {args.id}", file=sys.stderr)
         sys.exit(1)
         
     except json.JSONDecodeError as e:
@@ -289,7 +302,7 @@ def _geometry_neighbors(args):
     from .analysis.geometry_engine import GeometryAnalyzer, is_visible_leaf
 
     layers = ir_data.get('source', {}).get('rawLayers', [])
-    target = next((layer for layer in layers if layer.get('id') == args.id), None)
+    target = _find_layer(layers, args.id)
     if target is None:
         print(f"Layer not found: {args.id}", file=sys.stderr)
         sys.exit(1)
@@ -300,7 +313,9 @@ def _geometry_neighbors(args):
         )
         sys.exit(1)
 
-    neighbors = GeometryAnalyzer().relationships_for(layers, args.id, args.distance)
+    neighbors = GeometryAnalyzer().relationships_for(
+        layers, target.get('id'), args.distance
+    )
     print(json.dumps({
         'layer': {
             'id': target.get('id'),

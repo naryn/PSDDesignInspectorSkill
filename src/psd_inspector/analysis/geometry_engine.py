@@ -143,16 +143,19 @@ class GeometryAnalyzer:
         layer_id: str,
         max_distance: float = 100.0,
     ) -> List[Dict[str, Any]]:
-        """Measured relationships between one layer and nearby visible layers."""
+        """Measured relationships between one layer and nearby sibling layers."""
         leaves = [layer for layer in layers if is_visible_leaf(layer)]
         target = next((layer for layer in leaves if layer.get("id") == layer_id), None)
         if target is None:
             return []
 
+        siblings = [
+            layer for layer in leaves if layer.get("parent_id") == target.get("parent_id")
+        ]
         target_rect = layer_rect(target)
         results: List[Dict[str, Any]] = []
-        for other in leaves:
-            if other is target or self._is_ancestor(target, other, layers):
+        for other in siblings:
+            if other is target:
                 continue
             other_rect = layer_rect(other)
             # Cheap distance pre-filter before full classification.
@@ -161,7 +164,7 @@ class GeometryAnalyzer:
             if _axis_gap(target_rect, other_rect, "vertical") > max_distance:
                 continue
 
-            if self._layer_order(target, other, layers):
+            if self._layer_order(target, other):
                 source, src_rect, dst, dst_rect = target, target_rect, other, other_rect
             else:
                 source, src_rect, dst, dst_rect = other, other_rect, target, target_rect
@@ -217,17 +220,7 @@ class GeometryAnalyzer:
         return layer_rect(parent)
 
     @staticmethod
-    def _is_ancestor(layer: Dict[str, Any], candidate: Dict[str, Any], layers: Sequence[Dict[str, Any]]) -> bool:
-        by_id = {item.get("id"): item for item in layers}
-        current = by_id.get(candidate.get("parent_id"))
-        while current is not None:
-            if current.get("id") == layer.get("id"):
-                return True
-            current = by_id.get(current.get("parent_id"))
-        return False
-
-    @staticmethod
-    def _layer_order(a: Dict[str, Any], b: Dict[str, Any], layers: Sequence[Dict[str, Any]]) -> bool:
+    def _layer_order(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         """Deterministic ordering so pair results are stable."""
         return str(a.get("id")) < str(b.get("id"))
 

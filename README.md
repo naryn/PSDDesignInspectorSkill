@@ -45,7 +45,7 @@ psd-inspector layer get \
   --ir ./output/home/design.json \
   --id layer-1038
 
-# 查询某图层的相邻元素与间距（实测几何）
+# 查询某图层同父级下相邻元素与间距（实测几何）
 psd-inspector geometry neighbors \
   --ir ./output/home/design.json \
   --id layer-1038 \
@@ -123,11 +123,12 @@ graph TD
 |---|---|---|
 | `fast` | 仅原生属性，低计算量 | 快速结构检查 |
 | `full` | 原生属性 + 几何/Token/预览/检查器 | **默认推荐** |
-| `deep` | 在 full 基础上启用更多像素测量 | 复杂 UI（后续继续扩充） |
+| `deep` | 当前等同 `full`（仅多一条诊断警告；预留，暂无额外像素测量） | 兼容既有调用 |
 
 ## 几何与 Token 说明
 
 - 所有坐标为文档全局坐标下的 `sourceBounds`；`visibleBounds` 当前等于 `sourceBounds`，像素级可见边界属于 P3。
+- `geometry neighbors` 仅比较目标图层同一父级下的可见叶子图层；`--id` 同时接受 `layer-<n>` 与裸数字 `<n>`。
 - 间距只对正交投影重叠比例 ≥ 0.3 的图层对计算；对角线关系不会生成 CSS gap。
 - `layoutHypotheses` 是带 `evidence`、`confidence`、`basis: measured_geometry` 的候选，不是 PSD 原生值。
 - Token 名称（如 `primary`、`textPrimary`）是候选命名，必须人工复核；颜色出现频率不代表品牌主色。
@@ -141,7 +142,7 @@ graph TD
 
 - `assets/layer-previews/` 中的 PNG 是 psd-tools 对单个图层的栅格渲染，不是原生矢量导出；不保证与 Photoshop 完全一致（尤其是未支持的效果）。当前不生成 WebP/SVG。
 - 资源按 PNG 内容 SHA256 去重：相同内容的多个图层共用一个文件，`asset-index.json` 用 `duplicatedFrom` 记录来源图层。
-- 导出的 PNG 不嵌入 ICC 配置：psd-tools 生成的 profile 带有运行时间戳，会导致相同输入产生不同哈希；色彩管理以原 PSD 为准。
+- 图层资源与预览 PNG 都不嵌入 ICC 配置：psd-tools 生成的 profile 带有运行时间戳，会导致相同输入产生不同哈希；色彩管理以原 PSD 为准。
 - `asset-index.json` 记录原始图层 ID、文档坐标、宽高、可见性、mask 标记、哈希和导出路径；隐藏图层也会导出，可通过 `visible` 区分。
 - `reports/extraction-summary.json` 每次运行都会生成；`--report` 额外生成 `unsupported.md`、`layer-inventory.md`、`design-spec.md`、`validation.json`。
 - 校验失败不会中断解析：错误写入 `diagnostics.validationResults`、`reports/validation.json` 和 `manifest.validation`。

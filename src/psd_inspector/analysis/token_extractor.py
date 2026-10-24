@@ -54,6 +54,22 @@ def _number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 
+def _css_color_with_opacity(color: Optional[str], opacity: float) -> str:
+    """Apply PSD effect opacity to a color so the CSS value keeps its alpha."""
+    normalized = _normalize_hex(color)
+    if normalized is None:
+        return color or "#000000"
+    text = normalized.lstrip("#")
+    alpha = max(0.0, min(1.0, float(opacity)))
+    if len(text) == 8:
+        alpha *= int(text[:2], 16) / 255.0
+        text = text[2:]
+    if alpha >= 0.999:
+        return f"#{text}"
+    r, g, b = (int(text[index:index + 2], 16) for index in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {_number(round(alpha, 3))})"
+
+
 class TokenExtractor:
     """Aggregate color / typography / spacing / border / shadow token candidates."""
 
@@ -197,7 +213,9 @@ class TokenExtractor:
         families: Dict[str, int] = {}
         sizes: Dict[float, int] = {}
         weights: Dict[str, int] = {}
-        layer_ids: Dict[str, set] = {"family": set(), "size": set(), "weight": set()}
+        family_layers: Dict[str, set] = {}
+        size_layers: Dict[float, set] = {}
+        weight_layers: Dict[str, set] = {}
 
         for layer in layers:
             typography = layer.get("typography")
@@ -207,15 +225,15 @@ class TokenExtractor:
                 family = run.get("font", {}).get("family")
                 if family:
                     families[family] = families.get(family, 0) + 1
-                    layer_ids["family"].add(layer["id"])
+                    family_layers.setdefault(family, set()).add(layer["id"])
                 size = run.get("effective_font_size_px")
                 if isinstance(size, (int, float)):
                     sizes[float(size)] = sizes.get(float(size), 0) + 1
-                    layer_ids["size"].add(layer["id"])
+                    size_layers.setdefault(float(size), set()).add(layer["id"])
                 weight = run.get("font", {}).get("weight")
                 if weight:
                     weights[str(weight)] = weights.get(str(weight), 0) + 1
-                    layer_ids["weight"].add(layer["id"])
+                    weight_layers.setdefault(str(weight), set()).add(layer["id"])
 
         tokens: List[Dict[str, Any]] = []
         for family, count in sorted(families.items(), key=lambda item: item[1], reverse=True):
@@ -226,7 +244,7 @@ class TokenExtractor:
                     type_="typography",
                     base=family,
                     usage_count=count,
-                    layer_ids=sorted(layer_ids["family"]),
+                    layer_ids=sorted(family_layers[family]),
                     description="Most frequent font family in native text layers.",
                 )
             )
@@ -238,7 +256,7 @@ class TokenExtractor:
                     type_="typography",
                     base=_number(size),
                     usage_count=count,
-                    layer_ids=sorted(layer_ids["size"]),
+                    layer_ids=sorted(size_layers[size]),
                     description="Font size candidate in pixels.",
                 )
             )
@@ -250,7 +268,7 @@ class TokenExtractor:
                     type_="typography",
                     base=weight,
                     usage_count=count,
-                    layer_ids=sorted(layer_ids["weight"]),
+                    layer_ids=sorted(weight_layers[weight]),
                     description="Font weight candidate from native text runs.",
                 )
             )
@@ -368,11 +386,14 @@ class TokenExtractor:
                 angle = math.radians(float(shadow.get("angle_deg", 90.0)))
                 offset_x = round(distance * math.cos(angle), 2)
                 offset_y = round(-distance * math.sin(angle), 2)
+                color = _css_color_with_opacity(
+                    shadow.get("color"), float(shadow.get("opacity", 1.0))
+                )
                 css = (
                     f"{_number(offset_x)}px {_number(offset_y)}px "
                     f"{_number(float(shadow.get('size_px', 0.0)))}px "
                     f"{_number(float(shadow.get('spread_px', 0.0)))}px "
-                    f"{shadow.get('color', '#000000')}"
+                    f"{color}"
                 )
                 counts[css] = counts.get(css, 0) + 1
                 layer_ids.setdefault(css, set()).add(layer["id"])

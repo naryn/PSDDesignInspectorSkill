@@ -130,19 +130,26 @@ class LayoutDetector:
                 metrics={"max_center_deviation_px": round(deviation, 2)},
             ).model_dump(mode="json"),
         ]
-        confidence = min(0.95, 0.5 + 0.25 * spacing_strength + 0.2 * alignment_strength)
         gap = float(spacing_group.get("gap_px", 0.0))
         justify = self._justify_content(members, parent_bounds, axis)
         conflicts = [
             layer["id"] for layer in siblings if layer["id"] not in layer_ids
         ]
+        # A spacing run covering few siblings is weak evidence for the parent layout.
+        coverage = len(layer_ids) / len(siblings)
+        coverage_factor = 0.25 + 0.75 * coverage
+        confidence = min(
+            0.95,
+            (0.5 + 0.25 * spacing_strength + 0.2 * alignment_strength)
+            * coverage_factor,
+        )
 
         frame = LayoutHypothesis(
             id=f"layout-{parent_id or 'root'}-flex-{direction}",
             layout_type="flex",
             confidence=round(confidence, 3),
             layers_involved=layer_ids,
-            coverage_ratio=round(len(layer_ids) / len(siblings), 3),
+            coverage_ratio=round(coverage, 3),
             evidence=evidence,
             conflicts=conflicts,
             css_recommendation={
@@ -246,7 +253,12 @@ class LayoutDetector:
             1.0 - (width_variance + height_variance) / max(self.tolerance_px * 2, 0.001),
         )
         layer_ids = [layer["id"] for row in rows for layer, _ in row]
-        confidence = min(0.95, 0.55 + 0.2 * size_strength + 0.2 * gap_strength)
+        coverage = len(layer_ids) / len(siblings)
+        coverage_factor = 0.25 + 0.75 * coverage
+        confidence = min(
+            0.95,
+            (0.55 + 0.2 * size_strength + 0.2 * gap_strength) * coverage_factor,
+        )
 
         evidence = [
             LayoutEvidence(
@@ -270,7 +282,7 @@ class LayoutDetector:
             layout_type="grid",
             confidence=round(confidence, 3),
             layers_involved=layer_ids,
-            coverage_ratio=round(len(layer_ids) / len(siblings), 3),
+            coverage_ratio=round(coverage, 3),
             evidence=evidence,
             conflicts=[layer["id"] for layer in siblings if layer["id"] not in layer_ids],
             css_recommendation={

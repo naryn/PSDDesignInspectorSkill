@@ -101,6 +101,23 @@ class TestDesignIRPipeline:
 
         assert layer.geometry.normalized["width"] == 0.0
 
+    def test_layer_mask_is_reported_as_unsupported_without_false_provenance(self):
+        pipeline = DesignIRPipeline()
+        raw_layer = {
+            "id": "layer-1",
+            "name": "Masked",
+            "kind": "pixel",
+            "has_mask": True,
+            "bounds": {"x": 0, "y": 0, "width": 10, "height": 10},
+        }
+
+        layer = pipeline._convert_raw_to_layer(raw_layer, 100, 100)
+
+        assert layer.extraction.status.value == "partial"
+        assert "layer_mask" in layer.extraction.unsupported_properties
+        assert "masks" not in layer.extraction.property_sources
+        assert layer.masks == []
+
     def test_map_blend_mode_unknown(self):
         pipeline = DesignIRPipeline()
         assert pipeline._map_blend_mode("unknown_mode") == "normal"

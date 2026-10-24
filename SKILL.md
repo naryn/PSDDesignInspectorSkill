@@ -46,7 +46,8 @@ description: >
 
 - `fast`: Native properties only, minimal computation
 - `full`: All properties, geometry, tokens, assets (recommended)
-- `deep`: Full analysis plus pixel measurements and visual inference
+- `deep`: Reserved; currently equivalent to `full` apart from a diagnostic warning
+  (no extra pixel measurements yet)
 
 ### Output Structure
 
@@ -80,14 +81,16 @@ output requires `--export-assets` and `--report` respectively.
 - Supports PSD and PSB formats only
 - Requires Python 3.9+ with psd-tools, Pillow, Pydantic and jsonschema
 - Offline processing by default, no cloud dependencies
-- Smart objects: support up to configurable nesting depth
+- Smart object contents are not extracted; such layers are marked
+  `smart_object_contents` in `extraction.unsupported_properties`
 - Handles corrupted or incomplete PSDs gracefully
-- Large file optimization with streaming and caching
+- PSD files are processed in memory; streaming and caching are not implemented
 
 ## Error Handling
 
 - Invalid PSD structure: return detailed error with validation info
-- Missing fonts: preserve original names, mark as missing
+- Missing fonts: preserve original names; local font availability is not checked,
+  so `font.missing` stays false
 - Rasterized text: report OCR capabilities if enabled
 - Corrupted layers: skip individual layers, continue processing others
 - Unsupported features: document in `diagnostics.unsupportedFeatures` and
@@ -149,6 +152,8 @@ psd-inspector annotate \
   Do not present layout candidates as native PSD values.
 - `sourceBounds` is the authoritative geometry. `visibleBounds` currently mirrors it;
   pixel-level visible/effect bounds are planned for P3.
+- `geometry neighbors` compares only visible leaf layers that share the target's
+  parent; `--id` accepts `layer-<n>` or a bare native id `<n>`.
 - Text layers carry native `characterRuns` and `paragraphRuns`; point sizes are kept
   with a DPI conversion basis for `effective_font_size_px`.
 - Shape fills come from `vscg`, stroke colors from `vstk`. Effects that the IR cannot
@@ -157,8 +162,8 @@ psd-inspector annotate \
 - `viewer.html` is fully standalone: preview and IR subset are embedded.
 - `assets/layer-previews/` contains psd-tools raster renderings, not SVG or native
   vector exports. Assets are deduplicated by PNG hash; `asset-index.json` records
-  `duplicatedFrom`, bounds, document offset, mask flags and visibility. PNGs are
-  saved without ICC metadata so hashes are reproducible across runs.
+  `duplicatedFrom`, bounds, document offset, mask flags and visibility. Asset and
+  preview PNGs are saved without ICC metadata so hashes are reproducible across runs.
 - `reports/extraction-summary.json` is always produced. Treat schema validation
   failures in `manifest.validation` as real defects, not warnings to hide.
 - `diagnostics.unsupportedFeatures` lists parser-level gaps;

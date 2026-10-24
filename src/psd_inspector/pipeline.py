@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import json
 import hashlib
+import shutil
 import sys
 
 from .adapters.psd_tools_adapter import PsdToolsAdapter
@@ -45,6 +46,15 @@ class DesignIRPipeline:
     """Main pipeline for PSD to Design IR conversion."""
     
     SCHEMA_VERSION = "1.0.0"
+    MANAGED_OUTPUT_FILES = (
+        'design.json',
+        'source-layers.json',
+        'geometry.json',
+        'design-tokens.json',
+        'viewer.html',
+        'manifest.json',
+    )
+    MANAGED_OUTPUT_DIRS = ('previews', 'assets', 'reports')
     
     def __init__(self, profile: str = ExtractorProfile.FULL):
         """Initialize pipeline with extraction profile.
@@ -265,6 +275,10 @@ class DesignIRPipeline:
         diagnostics['warnings'].append(
             'visibleBounds equals sourceBounds: pixel-level visible bounds analysis is not implemented (P3).'
         )
+        if self.profile == ExtractorProfile.DEEP:
+            diagnostics['warnings'].append(
+                'The deep profile currently matches full; additional pixel measurements are not implemented.'
+            )
         if sampled_colors:
             diagnostics['warnings'].append(
                 f"{len(sampled_colors)} color sample(s) were measured from raster pixels; "
@@ -384,8 +398,6 @@ class DesignIRPipeline:
             'appearance.opacity': {'source': 'psd_native', 'confidence': 1.0},
             'appearance.blend_mode': {'source': 'psd_native', 'confidence': 1.0},
         }
-        if raw.get('has_mask'):
-            property_sources['masks'] = {'source': 'psd_native', 'confidence': 1.0}
         if raw_appearance.get('fills'):
             property_sources['appearance.fills'] = {
                 'source': 'psd_native',
@@ -424,6 +436,7 @@ class DesignIRPipeline:
         unsupported = [
             feature
             for feature, present in (
+                ('layer_mask', bool(raw.get('has_mask'))),
                 ('vector_mask', bool(raw.get('has_vector_mask'))),
                 ('clipping_mask', bool(raw.get('clipping'))),
                 ('smart_object_contents', raw.get('kind') == 'smart_object'),
@@ -643,7 +656,7 @@ class DesignIRPipeline:
                 relationships = self._design_ir['analysis'].get('spatialRelationships', [])
 
                 original_path = previews_dir / 'original.png'
-                self._preview_image.save(original_path)
+                self._preview_image.save(original_path, icc_profile=None)
                 written.append('previews/original.png')
 
                 annotated = draw_annotations(
@@ -654,7 +667,7 @@ class DesignIRPipeline:
                     document_width=metadata.get('width_px'),
                     document_height=metadata.get('height_px'),
                 )
-                annotated.save(previews_dir / 'annotated.png')
+                annotated.save(previews_dir / 'annotated.png', icc_profile=None)
                 written.append('previews/annotated.png')
 
                 viewer_path = output_dir / 'viewer.html'
@@ -684,8 +697,17 @@ class DesignIRPipeline:
             self._manifest['run']['warnings'].append(warning)
             print(f"Warning: {warning}", file=sys.stderr)
         
-        # Update and write manifest
+        # Keep the directory consistent with this run's manifest
         written.append('manifest.json')
+        stale = self._prune_stale_outputs(output_dir, written)
+        if stale:
+            print(
+                f"Removed {len(stale)} stale output(s) from a previous run: "
+                f"{', '.join(stale)}",
+                file=sys.stderr,
+            )
+
+        # Update and write manifest
         self._manifest['output']['directory'] = str(output_dir)
         self._manifest['output']['files'] = written
         self._manifest['output']['hashes'] = {
@@ -702,6 +724,43 @@ class DesignIRPipeline:
         for name in written:
             print(f"  - {name}: {(output_dir / name).stat().st_size} bytes")
         return written
+
+    def _prune_stale_outputs(self, output_dir: Path, written: List[str]) -> List[str]:
+        """Remove managed outputs left behind by an earlier profile or run."""
+        written_set = set(written)
+        removed: List[str] = []
+
+        for name in self.MANAGED_OUTPUT_FILES:
+            if name in written_set:
+                continue
+            path = output_dir / name
+            if path.is_file():
+                path.unlink()
+                removed.append(name)
+
+        for name in self.MANAGED_OUTPUT_DIRS:
+            directory = output_dir / name
+            if not directory.is_dir():
+                continue
+            if not any(item.startswith(f"{name}/") for item in written_set):
+                shutil.rmtree(directory)
+                removed.append(f"{name}/")
+                continue
+            for path in list(directory.rglob("*")):
+                if path.is_file():
+                    relative = path.relative_to(output_dir).as_posix()
+                    if relative not in written_set:
+                        path.unlink()
+                        removed.append(relative)
+            for path in sorted(
+                (item for item in directory.rglob("*") if item.is_dir()),
+                key=lambda item: len(item.parts),
+                reverse=True,
+            ):
+                if not any(path.iterdir()):
+                    path.rmdir()
+
+        return removed
 
     @staticmethod
     def _sha256_file(path: Path) -> str:

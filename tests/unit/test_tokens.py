@@ -124,7 +124,63 @@ def test_border_and_shadow_tokens():
 
     assert {token["value"]["base"] for token in result["borderTokens"]} == {"8", "2"}
     assert len(result["shadowTokens"]) == 1
-    assert result["shadowTokens"][0]["value"]["base"].endswith("#000000")
+    assert result["shadowTokens"][0]["value"]["base"].endswith("rgba(0, 0, 0, 0.15)")
+
+
+def test_opaque_shadow_keeps_hex_color():
+    layer = make_layer(
+        "layer-1",
+        appearance={
+            "drop_shadow": {
+                "color": "#B30004",
+                "opacity": 1.0,
+                "angle_deg": 90,
+                "distance_px": 0,
+                "spread_px": 0,
+                "size_px": 4,
+                "enabled": True,
+            },
+        },
+    )
+
+    result = TokenExtractor().extract(make_ir([layer], []), types=["shadows"])
+
+    assert result["shadowTokens"][0]["value"]["base"].endswith("#B30004")
+
+
+def test_typography_tokens_attribute_layers_per_value():
+    def text_layer(layer_id, family, size, weight):
+        return {
+            "id": layer_id,
+            "kind": "text",
+            "appearance": {"fills": [], "strokes": []},
+            "typography": {
+                "character_runs": [
+                    {
+                        "font": {"family": family, "weight": weight},
+                        "effective_font_size_px": size,
+                        "color": "#000000",
+                        "opacity": 1.0,
+                    }
+                ]
+            },
+        }
+
+    layers = [
+        text_layer("text-1", "Inter", 16, "regular"),
+        text_layer("text-2", "Inter", 16, "regular"),
+        text_layer("text-3", "Source Han Sans", 24, "bold"),
+    ]
+
+    result = TokenExtractor().extract(make_ir(layers, []), types=["typography"])
+    tokens = {token["value"]["base"]: token for token in result["typographyTokens"]}
+
+    assert tokens["16"]["source_layer_ids"] == ["text-1", "text-2"]
+    assert tokens["24"]["source_layer_ids"] == ["text-3"]
+    assert tokens["Inter"]["source_layer_ids"] == ["text-1", "text-2"]
+    assert tokens["Source Han Sans"]["source_layer_ids"] == ["text-3"]
+    assert tokens["regular"]["source_layer_ids"] == ["text-1", "text-2"]
+    assert tokens["bold"]["source_layer_ids"] == ["text-3"]
 
 
 def test_type_filter_only_returns_requested_groups():

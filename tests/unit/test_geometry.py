@@ -3,6 +3,7 @@
 import pytest
 
 from psd_inspector.analysis.geometry_engine import GeometryAnalyzer
+from psd_inspector.analysis.layout_detector import LayoutDetector
 
 
 def make_layer(layer_id, x, y, width, height, parent_id=None, kind="pixel", visible=True):
@@ -140,6 +141,65 @@ def test_hidden_and_group_layers_are_excluded():
 
     assert result["spatialRelationships"] == []
     assert result["layoutHypotheses"] == []
+
+
+def test_flex_confidence_drops_when_few_siblings_are_covered():
+    siblings = [make_layer("a", 0, 0, 10, 10), make_layer("b", 20, 0, 10, 10)]
+    siblings += [
+        make_layer(f"other-{index}", 0, 100 + index * 40, 10, 10)
+        for index in range(9)
+    ]
+    spacing = {
+        "id": "spacing-root-horizontal-0",
+        "direction": "horizontal",
+        "layer_ids": ["a", "b"],
+        "gap_px": 10,
+        "gap_variance_px": 0,
+    }
+
+    hypotheses = LayoutDetector().detect(
+        siblings, None, (0, 0, 500, 500), [], [spacing], 500
+    )
+    flex = next(h for h in hypotheses if h["layout_type"] == "flex")
+
+    assert flex["coverage_ratio"] == pytest.approx(2 / 11, abs=0.001)
+    assert flex["confidence"] < 0.5
+
+
+def test_flex_confidence_stays_high_for_full_coverage():
+    siblings = [
+        make_layer("a", 0, 0, 10, 10),
+        make_layer("b", 20, 0, 10, 10),
+        make_layer("c", 40, 0, 10, 10),
+    ]
+    spacing = {
+        "id": "spacing-root-horizontal-0",
+        "direction": "horizontal",
+        "layer_ids": ["a", "b", "c"],
+        "gap_px": 10,
+        "gap_variance_px": 0,
+    }
+
+    hypotheses = LayoutDetector().detect(
+        siblings, None, (0, 0, 100, 100), [], [spacing], 100
+    )
+    flex = next(h for h in hypotheses if h["layout_type"] == "flex")
+
+    assert flex["coverage_ratio"] == 1.0
+    assert flex["confidence"] > 0.9
+
+
+def test_neighbors_are_limited_to_the_targets_siblings():
+    root = make_layer("background", 0, 0, 100, 100)
+    group = make_layer("group", 10, 10, 50, 50, kind="group")
+    first = make_layer("a", 20, 20, 10, 10, parent_id="group")
+    second = make_layer("b", 40, 20, 10, 10, parent_id="group")
+
+    neighbors = GeometryAnalyzer().relationships_for(
+        [root, group, first, second], "a", 200
+    )
+
+    assert {item["target_layer_id"] for item in neighbors} == {"b"}
 
 
 def test_neighbors_for_returns_reciprocal_direction():

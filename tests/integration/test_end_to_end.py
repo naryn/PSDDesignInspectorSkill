@@ -150,3 +150,61 @@ def test_fast_profile_skips_analysis(sample_psd, tmp_path):
     assert not (output_dir / "design-tokens.json").exists()
     assert not (output_dir / "previews").exists()
     assert not (output_dir / "viewer.html").exists()
+
+
+def test_previews_are_byte_deterministic_without_icc(sample_psd, tmp_path):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first = DesignIRPipeline().process_file(str(sample_psd), str(first_dir))
+    second = DesignIRPipeline().process_file(str(sample_psd), str(second_dir))
+    assert first["status"] == "success", first
+    assert second["status"] == "success", second
+
+    first_manifest = json.loads((first_dir / "manifest.json").read_text(encoding="utf-8"))
+    second_manifest = json.loads((second_dir / "manifest.json").read_text(encoding="utf-8"))
+    for relative in ("previews/original.png", "previews/annotated.png"):
+        assert (
+            first_manifest["output"]["hashes"][relative]
+            == second_manifest["output"]["hashes"][relative]
+        )
+        with Image.open(first_dir / relative) as image:
+            assert image.info.get("icc_profile") is None
+
+
+def test_deep_profile_is_reported_as_matching_full(sample_psd, tmp_path):
+    output_dir = tmp_path / "deep"
+    result = DesignIRPipeline(profile="deep").process_file(
+        str(sample_psd), str(output_dir)
+    )
+    assert result["status"] == "success", result
+
+    design = json.loads((output_dir / "design.json").read_text(encoding="utf-8"))
+    warnings = design["diagnostics"]["warnings"]
+    assert any("deep profile currently matches full" in warning for warning in warnings)
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert any("deep profile currently matches full" in warning for warning in manifest["run"]["warnings"])
+
+
+def test_rerun_removes_outputs_from_a_previous_profile(sample_psd, tmp_path):
+    output_dir = tmp_path / "reuse"
+
+    full = DesignIRPipeline().process_file(
+        str(sample_psd), str(output_dir), report=True
+    )
+    assert full["status"] == "success", full
+    assert (output_dir / "geometry.json").exists()
+    assert (output_dir / "reports" / "design-spec.md").exists()
+
+    fast = DesignIRPipeline(profile="fast").process_file(
+        str(sample_psd), str(output_dir)
+    )
+    assert fast["status"] == "success", fast
+    assert not (output_dir / "geometry.json").exists()
+    assert not (output_dir / "design-tokens.json").exists()
+    assert not (output_dir / "previews").exists()
+    assert not (output_dir / "viewer.html").exists()
+    assert not (output_dir / "reports" / "design-spec.md").exists()
+    assert (output_dir / "reports" / "extraction-summary.json").exists()
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert not any(name.startswith("previews/") for name in manifest["output"]["files"])
