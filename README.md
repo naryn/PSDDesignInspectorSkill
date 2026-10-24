@@ -20,7 +20,7 @@
 | `validation/` | Design IR 的 JSON Schema 校验 |
 | `pipeline.py` | 编排解析、分析、导出与 manifest 生成 |
 
-历史规划文档已归档到 [`docs/archive/`](docs/archive/README.md)；完整能力矩阵与待办见 [`docs/FEATURE_MAP.md`](docs/FEATURE_MAP.md)，当前能力与限制以本文件为准。
+历史规划文档已归档到 [`docs/archive/`](docs/archive/README.md)；一页式摘要见 [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md)，完整能力矩阵与待办见 [`docs/FEATURE_MAP.md`](docs/FEATURE_MAP.md)。当前能力与限制以本文件为准。
 
 ## 特性
 
