@@ -180,6 +180,49 @@ psd-inspector annotate \
 - `diagnostics.unsupportedFeatures` lists parser-level gaps;
   `extraction.unsupported_properties` lists per-layer unsupported properties.
 
+## Downstream Reconstruction Rules
+
+Apply these rules whenever the output is used to rebuild a page (for example by a
+coding agent). They are requirements, not heuristics.
+
+1. **Respect provenance order.** `psd_native` > `measured_geometry` >
+   `pixel_measured` > `candidate`. Never present tokens, layout hypotheses or
+   sampled colors as native design values. Check `extraction.property_sources`
+   when a field's origin is unclear.
+2. **Raster fallback first.** Any layer with `export_paths`, `kind` of `pixel` or
+   `smart_object`, or non-empty `extraction.unsupported_properties` must be placed
+   as an absolutely positioned `<img>` using `assets/asset-index.json`. Do not
+   redraw it.
+3. **Shape paths are unavailable.** `vector_mask` exposes metadata only.
+   Rectangles and rounded rectangles may be rebuilt from `geometry.source_bounds`
+   plus `appearance.fills`, `appearance.strokes` and `appearance.border_radius`.
+   Any other path must use its raster asset or be flagged for manual tracing.
+4. **Text only from native runs.** Use `typography.character_runs` for font
+   family, PostScript name, size, color and tracking, and `paragraph_runs` for
+   alignment, line height, spacing and indents. Do not invent weights, letter
+   spacing or line breaks. `content_width_px` and `content_height_px` are usually
+   null; when wrapping is unknown, render one line and verify against the preview.
+5. **Geometry first, layout later.** Position layers from
+   `geometry.source_bounds` (document pixels) or `geometry.relative_to_parent`.
+   Adopt `layoutHypotheses` only when `confidence >= 0.6`; keep layers listed in
+   `conflicts` absolutely positioned. Never treat an `absolute` fallback
+   hypothesis as confirmed layout.
+6. **Never guess.** If a required value is null, absent, or listed in
+   `unsupported_properties`, leave an explicit TODO or use the raster asset.
+   Never fabricate colors, effects, masks, transforms or hidden-layer content.
+7. **Effects.** Implement only effects present in `appearance` (shadow, glow,
+   overlay, stroke). `BevelEmboss`, `Satin` and filter effects are not
+   parameterized; use the raster asset when they are visually significant.
+8. **Masks.** Pixel and vector masks are metadata only. Do not fake soft edges or
+   clipping; use the rendered asset instead.
+9. **Fonts.** `font.missing=false` does not mean the font is installed in the
+   target environment. Declare a fallback when a font is unavailable and verify
+   its metrics.
+10. **Verify by diff.** After each top-level group, render at
+    `document.metadata.width_px` × `height_px`, screenshot, and compare with
+    `previews/original.png`. Feed the diff back as the next instruction. Do not
+    claim pixel fidelity without this check.
+
 ## Version Compatibility
 
 - Schema version: `1.0.0`
