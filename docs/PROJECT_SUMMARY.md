@@ -7,7 +7,7 @@
 
 PSD Design Inspector 是一个**确定性、离线优先**的 PSD/PSB 解析 Skill。它把设计稿转换为可校验、可追溯的 Design IR，为前端还原、设计系统与自动化流程提供结构化输入。
 
-**不做**：不生成页面、不修改原始 PSD、不使用 AI 猜测已有属性、不把测量值或候选值描述成原生值。
+**不做**：不生成页面、不修改原始 PSD、不使用 AI 猜测已有属性、不把测量值或候选值描述成原生值。AI 仅用于图层命名的候选建议，且写入独立 `names.json`，不回写 IR。
 
 ## 2. 架构与模块
 
@@ -18,7 +18,8 @@ PSD Design Inspector 是一个**确定性、离线优先**的 PSD/PSB 解析 Ski
 | `analysis/geometry_engine.py` | 相对坐标、邻近关系、对齐/间距组、组内 padding |
 | `analysis/layout_detector.py` | Flex / Grid / Absolute 候选与置信度 |
 | `analysis/token_extractor.py` | 颜色/排版/间距/边框/阴影 Token 候选 |
-| `exporters/` | 预览、标注图、逐层 PNG、HTML 检查器、报告 |
+| `exporters/` | 预览、标注图、非文字图层 PNG、HTML 检查器、报告 |
+| `naming.py` | 命名上下文包、宿主 Agent 建议校验、独立 `names.json` 合并 |
 | `validation/ir_validator.py` | Design IR JSON Schema 校验 |
 | `pipeline.py` | 编排解析、分析、导出、校验与 manifest |
 
@@ -32,8 +33,9 @@ PSD Design Inspector 是一个**确定性、离线优先**的 PSD/PSB 解析 Ski
 - **蒙版**：像素蒙版边界/禁用/反相/背景色；矢量蒙版归一化边界/填充规则/路径数。
 - **几何**：相对坐标、归一化坐标、同父级邻近关系、对齐组、间距组、Flex/Grid/Absolute 候选。
 - **Token**：颜色、排版、间距、边框、阴影候选，逐值记录来源图层；命名需人工复核。
-- **产物**：Design IR、几何/Token JSON、预览与标注图、逐层 PNG（哈希去重）、独立 HTML 检查器、报告、manifest。
-- **CLI**：`inspect`、`layer get`、`geometry neighbors`、`tokens extract`、`annotate`。
+- **产物**：Design IR、几何/Token JSON、预览与标注图、非文字图层 PNG（哈希去重）、独立 HTML 检查器、报告、manifest。
+- **AI 辅助命名**：`names pack` 产出确定性上下文与分组/窗口区域裁剪图，宿主 Agent 基于实际图片、区域候选和语义提示命名，`names apply` 校验 IR 哈希、ID、名称与置信度并写入独立 `names.json`；不修改原生 `name`。`viewer --names` 可在检查器的树、画布标签和属性面板中查看语义名与 PSD 原名。
+- **CLI**：`inspect`、`layer get`、`geometry neighbors`、`tokens extract`、`annotate`、`names pack/apply`、`viewer`。
 
 ## 4. 当前产物
 
@@ -50,14 +52,16 @@ output/
 └── manifest.json
 ```
 
-`fast` 仅输出 IR、源图层、摘要与 manifest；`full` 增加几何、Token、预览与检查器；`deep` 当前等同 `full`。
+`fast` 仅输出 IR、源图层、摘要与 manifest；`full` 增加几何、Token、预览与检查器；`deep` 当前等同 `full`。`naming-pack.json` 与 `names.json` 由 `names` 子命令单独写出。
 
 ## 5. 质量基线
 
-- 测试：**65 项**单元/集成测试，覆盖率 **83%**。
+- 测试：**93 项**单元/集成测试，覆盖率 **83%**。
 - 真实文件：68.7 MB（68,663,039 字节）/ 3840×3621 / 470 图层（117 组、112 文字、184 形状、32 智能对象、25 像素；446 可见 / 24 隐藏）。
 - 真实文件验证：32/32 智能对象元数据、14 个像素蒙版、184 个矢量蒙版；核心产物重复运行哈希一致。
-- 检查器：470 个标签中可见标签 0 重叠，支持蒙版与智能对象详情。
+- AI 命名验证：255 个重名图层、24 个隐藏图层，235 张视觉证据裁剪图覆盖 307 个图层；67 个 AI 语义名（58 组 / 7 像素层 / 2 形状层，置信度 0.85–0.95），403 个规则名；470 个名称与 slug 全部唯一，`names apply` 无警告。
+- 检查器：470 个标签中可见标签 0 重叠，支持蒙版与智能对象详情；点击树行或画布边界框显示高对比选中框与名称标签，并自动滚动定位。
+- 可复现性：design / geometry / tokens / assets / names / viewer 同路径重复运行哈希一致；`naming-pack.json` 因 `visualEvidence.visualsDir` 记录绝对路径，跨输出目录时字节哈希不同（内容等价）。
 - 校验失败不中断解析，错误写入 `diagnostics`、`reports/validation.json` 与 `manifest.validation`。
 
 ## 6. 数据可信度
@@ -69,7 +73,7 @@ output/
 | `pixel_measured` | 栅格像素统计采样 |
 | `candidate` | 聚类/命名建议，必须人工复核 |
 
-`confidence=1.0` 仅用于语义明确的原生字段；布局候选必须携带证据与置信度，不得当作 PSD 原生布局。
+`confidence=1.0` 仅用于语义明确的原生字段；布局候选必须携带证据与置信度，不得当作 PSD 原生布局。`names.json` 另用 `ai_inferred` / `rule_based` 标记名称来源，不属于 Design IR 属性来源；AI 命名依赖宿主 Agent，CLI 本身不调用模型或网络。
 
 ## 7. 未完成待办
 
@@ -92,6 +96,7 @@ output/
 
 - 大文件流式读取、并行限制与中间文件回收
 - 基于输入/配置/解析器版本哈希的缓存
+- 命名包跨输出目录字节一致（将 `visualEvidence.visualsDir` 改为相对路径或规范化后参与哈希）
 - SVG/WebP/原生矢量资源导出
 - 下游系统对接、UXP 高级补全与批量处理
 

@@ -29,7 +29,7 @@ Design IR（Layer / Typography / Appearance / Geometry / ExtractionInfo）
   ↓ analysis/token_extractor.py
 颜色 / 排版 / 间距 / 边框 / 阴影 Token 候选
   ↓ exporters/
-预览、标注图、逐层 PNG、HTML 检查器、报告
+预览、标注图、非文字图层 PNG、HTML 检查器、报告
   ↓ validation/ir_validator.py + pipeline.manifest
 JSON Schema 校验结果 + 运行清单 + 文件哈希
 ```
@@ -139,12 +139,13 @@ JSON Schema 校验结果 + 运行清单 + 文件哈希
 |---|---|---|---|
 | 合成预览 | ✅ | `previews/original.png` | psd-tools `composite(force=True)`；无 ICC 以保证可复现 |
 | 标注图 | ✅ | `previews/annotated.png` | 边界、ID、实测间距；隐藏图层默认不绘制 |
-| 独立 HTML 检查器 | ✅ | `viewer.html` | 图片与 IR 子集内嵌，无外部请求；显示蒙版/智能对象详情；标签贪心避让碰撞 |
-| 逐层 PNG | ✅ | `assets/layer-previews/` | 栅格渲染，不是原生矢量导出；按 SHA256 去重 |
-| 资源索引 | ✅ | `assets/asset-index.json` | 图层 ID、坐标、尺寸、mask 标记、哈希、`duplicatedFrom` |
+| 独立 HTML 检查器 | ✅ | `viewer.html` | 图片与 IR 子集内嵌，无外部请求；显示蒙版/智能对象详情；标签贪心避让碰撞；点击树行或画布边界框显示高对比选中框与名称标签并自动滚动定位；`viewer --names` 在树/标签/属性面板显示语义名、AI 标记与 PSD 原名，不改 IR |
+| 非文字图层 PNG | ✅ | `assets/layer-previews/` | 栅格渲染，不是原生矢量导出；按 SHA256 去重；文字层不导出 |
+| 资源索引 | ✅ | `assets/asset-index.json` | 图层 ID、坐标、尺寸、mask 标记、哈希、`duplicatedFrom`、`excludedTextLayers` |
 | 蒙版 PNG | ○ | — | 见 3.5 |
 | SVG / WebP / 原生矢量 | ○ | — | 未实现 |
 | 报告 | ✅ | `reports/*` | 摘要每次生成；详细报告需 `--report` |
+| AI 辅助命名 | ✅ | `names pack` → `naming-pack.json` + `naming-visuals/`；`names apply` → `names.json` | 宿主 Agent 基于预览/分组裁剪图与语义线索生成建议；CLI 校验合并；独立文件，不修改原生 `name` |
 | 运行清单 | ✅ | `manifest.json` | 输入哈希、解析器版本、profile、警告、文件哈希、校验状态 |
 
 ### 3.9 CLI
@@ -156,16 +157,19 @@ JSON Schema 校验结果 + 运行清单 + 文件哈希
 | `psd-inspector geometry neighbors --ir ... --id ... --distance ...` | ✅ | 复用同一 ID 解析；范围限定为同父级可见叶子图层 |
 | `psd-inspector tokens extract --ir ... --types ...` | ✅ | 从已有 IR 重算指定 Token 类型 |
 | `psd-inspector annotate --ir ... --show bounds,ids,spacing` | ✅ | 复用已有预览或指定 PSD 重新渲染 |
+| `psd-inspector names pack --ir ...` | ✅ | 命名上下文包：层级、文字、字体、资源、重名、区域候选、语义提示、UI 词表；默认生成分组视觉裁剪图 |
+| `psd-inspector names apply --ir ... --names ...` | ✅ | 校验 IR 哈希/ID/置信度；输出独立 `names.json`，重复名称与 slug 自动消歧 |
+| `psd-inspector viewer --ir ... [--names ...]` | ✅ | 从 IR + 可选 `names.json` 重建独立检查器；校验哈希与图层 ID；语义名进入树、画布标签、搜索和属性面板；选中图层显示高对比框、名称标签并自动定位 |
 
 ### 3.10 确定性、校验与错误处理
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | JSON Schema 运行时校验 | ✅ | 失败写入 `diagnostics.validationResults`、`reports/validation.json`、`manifest.validation`，不中断解析 |
-| 可复现输出 | ✅ | 预览、资源、design.json、geometry、tokens、viewer 哈希一致；manifest 与 extraction-summary 含运行时间/输出路径，天然不同 |
+| 可复现输出 | ✅ | 预览、资源、design.json、geometry、tokens、names、viewer 哈希一致；manifest 与 extraction-summary 含运行时间/输出路径，天然不同；`naming-pack.json` 因 `visualEvidence.visualsDir` 为绝对路径，跨输出目录哈希不同 |
 | 过期输出清理 | ✅ | 复用输出目录时移除上次运行的受管文件与目录 |
 | 部分图层损坏 | ✅ | 单图层提取失败记录警告，继续处理其他图层 |
-| 离线运行 | ✅ | 无网络依赖 |
+| 离线运行 | ✅ | 无网络依赖；AI 命名只产出上下文包，由宿主 Agent 提供建议 |
 | 大文件流式读取 | ○ | 当前整体读入内存 |
 | 缓存 | ○ | 尚未实现基于输入/配置/版本哈希的缓存 |
 
@@ -188,6 +192,7 @@ JSON Schema 校验结果 + 运行清单 + 文件哈希
 
 - 所有候选布局必须携带 `evidence` 与 `confidence`，不得当作 PSD 原生布局。
 - `confidence=1.0` 仅用于可直接读取且语义明确的原生字段。
+- `names.json` 的 `ai_inferred` / `rule_based` 是命名来源，不属于 Design IR 属性来源；AI 名称不得写回 `design.json`。
 - 未能提取的内容写入 `unsupported_properties`，不计入“已完成”。
 
 ## 6. 未完成待办
@@ -218,13 +223,16 @@ JSON Schema 校验结果 + 运行清单 + 文件哈希
 |---|---|---|---|
 | 大文件流式读取 | 整体读入 | 限制峰值内存并回收中间文件 | `adapters/` |
 | 缓存 | 未实现 | 输入/配置/解析器版本哈希命中缓存 | `pipeline.py` |
+| 命名包跨目录可复现 | 绝对路径入包 | 不同输出目录生成相同 `naming-pack.json` 字节（相对 `visualsDir` 或规范化哈希输入） | `naming.py` |
 | SVG/WebP/原生矢量资源 | 仅 PNG | 输出可复现的矢量或 WebP 资源 | `exporters/asset_exporter.py` |
 | 下游系统对接 | 未实现 | 与 PSD Normalize Studio / Vue Generation Skill 的稳定接口 | 集成层 |
 | UXP 高级补全 / 批量处理 | 未实现 | 可选补全路径与批量任务 | 新增适配器 |
 
 ## 7. 验证基线
 
-- 测试：`pytest -q`，当前 65 项单元/集成测试。
+- 测试：`pytest -q`，当前 93 项单元/集成测试。
 - 真实文件基线：68.7 MB（68,663,039 字节）、3840×3621、470 图层（117 组 / 112 文字 / 184 形状 / 32 智能对象 / 25 像素；446 可见 / 24 隐藏）。
 - 真实文件验证结果：32/32 智能对象元数据、14 个像素蒙版元数据、184 个矢量蒙版元数据；重复运行核心产物哈希一致；检查器 470 个标签中可见标签无重叠。
+- AI 命名验证：255 个重名图层、24 个隐藏图层、235 张视觉裁剪图（307 层带视觉证据）；67 个 AI 语义名 / 403 个规则名，470 个名称与 slug 全部唯一，`names apply` 无警告。
+- 检查器交互：树行与画布边界框均可选中，显示高对比框、名称标签并自动滚动定位；零尺寸图层以 12px 标记定位。
 - PSD 测试夹具在测试运行时由 psd-tools 生成，仓库不保存二进制文件。

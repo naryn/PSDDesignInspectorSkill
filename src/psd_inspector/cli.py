@@ -129,6 +129,72 @@ def main():
         help='Output file path (default: stdout)'
     )
     
+    # Names command
+    names_parser = subparsers.add_parser(
+        'names',
+        help='AI-assisted layer naming (pack and apply)'
+    )
+    names_subparsers = names_parser.add_subparsers(dest='names_command')
+
+    names_pack = names_subparsers.add_parser(
+        'pack',
+        help='Build a deterministic naming context pack for a host agent'
+    )
+    names_pack.add_argument(
+        '--ir',
+        required=True,
+        help='Path to design.json IR file'
+    )
+    names_pack.add_argument(
+        '--output', '-o',
+        help='Output file path (default: stdout)'
+    )
+    names_pack.add_argument(
+        '--preview',
+        help='Composite preview used for visual context (default: <ir-dir>/previews/original.png)'
+    )
+    names_pack.add_argument(
+        '--visuals',
+        choices=['auto', 'none'],
+        default='auto',
+        help='Generate group context crops for visual naming (default: auto)'
+    )
+    names_pack.add_argument(
+        '--visuals-dir',
+        help='Crop output directory (default: <ir-dir>/naming-visuals)'
+    )
+    names_pack.add_argument(
+        '--max-edge',
+        type=int,
+        default=512,
+        help='Maximum crop width/height in pixels (default: 512)'
+    )
+    names_pack.add_argument(
+        '--padding',
+        type=int,
+        default=32,
+        help='Context padding around each crop in document pixels (default: 32)'
+    )
+
+    names_apply = names_subparsers.add_parser(
+        'apply',
+        help='Validate host-agent suggestions and write names.json'
+    )
+    names_apply.add_argument(
+        '--ir',
+        required=True,
+        help='Path to design.json IR file'
+    )
+    names_apply.add_argument(
+        '--names',
+        required=True,
+        help='Path to the candidate names JSON produced by the host agent'
+    )
+    names_apply.add_argument(
+        '--output', '-o',
+        help='Output file path (default: stdout)'
+    )
+
     # Annotate command
     annotate_parser = subparsers.add_parser(
         'annotate',
@@ -159,6 +225,29 @@ def main():
         required=True,
         help='Output image path'
     )
+
+    # Viewer command
+    viewer_parser = subparsers.add_parser(
+        'viewer',
+        help='Rebuild the HTML viewer, optionally with semantic names'
+    )
+    viewer_parser.add_argument(
+        '--ir',
+        required=True,
+        help='Path to design.json IR file'
+    )
+    viewer_parser.add_argument(
+        '--names',
+        help='Optional names.json produced by `names apply`'
+    )
+    viewer_parser.add_argument(
+        '--preview',
+        help='Composite preview image (default: <ir-dir>/previews/original.png)'
+    )
+    viewer_parser.add_argument(
+        '--output', '-o',
+        help='Output HTML path (default: <ir-dir>/viewer.html)'
+    )
     
     args = parser.parse_args()
     
@@ -175,8 +264,12 @@ def main():
         _handle_geometry(args)
     elif args.command == 'tokens':
         _handle_tokens(args)
+    elif args.command == 'names':
+        _handle_names(args)
     elif args.command == 'annotate':
         _handle_annotate(args)
+    elif args.command == 'viewer':
+        _handle_viewer(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -376,6 +469,242 @@ def _split_values(values):
     for value in values or []:
         result.extend(part.strip() for part in value.split(',') if part.strip())
     return result
+
+
+def _load_ir(path_value):
+    """Load a Design IR JSON file or exit with a readable error."""
+    ir_path = Path(path_value)
+    if not ir_path.exists():
+        print(f"Error: IR file not found: {path_value}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        with open(ir_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing IR file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _handle_names(args):
+    """Handle AI-assisted naming commands."""
+    if args.names_command == 'pack':
+        _names_pack(args)
+    elif args.names_command == 'apply':
+        _names_apply(args)
+    else:
+        print("Unsupported names command", file=sys.stderr)
+        sys.exit(1)
+
+
+def _names_pack(args):
+    """Build a naming context pack for a host agent."""
+    from .naming import build_naming_pack, render_naming_visuals
+
+    if args.max_edge < 64:
+        print("Error: --max-edge must be at least 64", file=sys.stderr)
+        sys.exit(2)
+    if args.padding < 0:
+        print("Error: --padding must be zero or greater", file=sys.stderr)
+        sys.exit(2)
+
+    ir_path = Path(args.ir)
+    ir_data = _load_ir(args.ir)
+    preview_path = (
+        Path(args.preview)
+        if args.preview
+        else ir_path.parent / 'previews' / 'original.png'
+    )
+
+    if preview_path.exists():
+        if args.visuals == 'auto':
+            visuals_dir = (
+                Path(args.visuals_dir)
+                if args.visuals_dir
+                else ir_path.parent / 'naming-visuals'
+            )
+            try:
+                visual_context = render_naming_visuals(
+                    ir_data,
+                    visuals_dir,
+                    preview_path,
+                    max_edge=args.max_edge,
+                    padding=args.padding,
+                )
+                visual_context['preview'] = str(preview_path.resolve())
+                visual_context['root'] = str(visuals_dir.resolve())
+            except Exception as error:
+                print(
+                    f"Warning: visual crop generation failed: {error}",
+                    file=sys.stderr,
+                )
+                visual_context = {
+                    'preview': str(preview_path.resolve()),
+                    'root': None,
+                    'crops': {},
+                    'cropCount': 0,
+                    'skipped': {},
+                }
+        else:
+            visual_context = {
+                'preview': str(preview_path.resolve()),
+                'root': None,
+                'crops': {},
+                'skipped': {},
+            }
+    else:
+        if args.visuals == 'auto':
+            print(
+                "Warning: preview image not found; visual crops were skipped: "
+                f"{preview_path}",
+                file=sys.stderr,
+            )
+        visual_context = {
+            'preview': None,
+            'root': None,
+            'crops': {},
+            'skipped': {},
+        }
+
+    payload = build_naming_pack(ir_data, visual_context=visual_context)
+    encoded = json.dumps(payload, indent=2, ensure_ascii=False)
+    summary = payload['summary']
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(encoded, encoding='utf-8')
+        print(f"Naming pack written to: {output_path}")
+        print(f"  - layers: {summary['total']} (groups: {summary['groups']}, "
+              f"text: {summary['textLayers']})")
+        print(f"  - duplicate names: {summary['duplicateNameLayers']}")
+        print(f"  - hidden layers: {summary['hiddenLayers']}")
+        print(f"  - visual crops: {summary['visualCrops']}")
+        if visual_context.get('root'):
+            print(f"  - visuals dir: {visual_context['root']}")
+    else:
+        print(encoded)
+
+
+def _names_apply(args):
+    """Validate host-agent suggestions and emit the independent names.json."""
+    from .naming import NamingError, apply_names
+
+    names_path = Path(args.names)
+    if not names_path.exists():
+        print(f"Error: candidate names file not found: {args.names}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        with open(names_path, 'r', encoding='utf-8') as f:
+            candidate = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing candidate names file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        payload = apply_names(_load_ir(args.ir), candidate)
+    except NamingError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    encoded = json.dumps(payload, indent=2, ensure_ascii=False)
+    summary = payload['summary']
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(encoded, encoding='utf-8')
+        print(f"Names written to: {output_path}")
+        print(f"  - layers: {summary['total']}")
+        print(f"  - ai suggested: {summary['aiSuggested']}")
+        print(f"  - rule based: {summary['ruleBased']}")
+        print(f"  - duplicates resolved: {summary['duplicatesResolved']}")
+        for warning in summary['warnings']:
+            print(f"  - warning: {warning}", file=sys.stderr)
+    else:
+        print(encoded)
+
+
+def _handle_viewer(args):
+    """Rebuild the standalone viewer, optionally overlaying names.json."""
+    from PIL import Image
+
+    from .exporters.viewer_exporter import build_viewer_html
+    from .naming import ir_sha256_for
+
+    ir_path = Path(args.ir)
+    ir_data = _load_ir(args.ir)
+    preview_path = (
+        Path(args.preview)
+        if args.preview
+        else ir_path.parent / 'previews' / 'original.png'
+    )
+    if not preview_path.exists():
+        print(f"Error: preview image not found: {preview_path}", file=sys.stderr)
+        print("Pass --preview with an existing composite image.", file=sys.stderr)
+        sys.exit(1)
+
+    names_data = None
+    if args.names:
+        names_path = Path(args.names)
+        if not names_path.exists():
+            print(f"Error: names file not found: {args.names}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            with open(names_path, 'r', encoding='utf-8') as f:
+                names_data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing names file: {e}", file=sys.stderr)
+            sys.exit(1)
+        entries = names_data.get('layers') if isinstance(names_data, dict) else None
+        if not isinstance(entries, list):
+            print(
+                "Error: expected names.json produced by `names apply` (missing layers list).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        expected_hash = ir_sha256_for(ir_data)
+        source = names_data.get('source') or {}
+        if source.get('irSha256') != expected_hash:
+            print(
+                "Error: names.json does not match this design.json (irSha256 mismatch).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        known = {
+            layer.get('id')
+            for layer in ir_data.get('source', {}).get('rawLayers', [])
+        }
+        unknown = sorted({
+            entry.get('id') for entry in entries
+            if entry.get('id') and entry.get('id') not in known
+        })
+        if unknown:
+            print(
+                f"Error: names.json references unknown layer ids: {', '.join(unknown[:5])}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    with Image.open(preview_path) as image:
+        image.load()
+        html = build_viewer_html(ir_data, image, names=names_data)
+
+    output_path = (
+        Path(args.output)
+        if args.output
+        else ir_path.parent / 'viewer.html'
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(html, encoding='utf-8')
+
+    layers = ir_data.get('source', {}).get('rawLayers', [])
+    print(f"Viewer written to: {output_path}")
+    print(f"  - layers: {len(layers)}")
+    if names_data:
+        entries = names_data['layers']
+        ai = sum(1 for entry in entries if entry.get('source') == 'ai_inferred')
+        print(f"  - semantic names: {len(entries)} (AI {ai}, rule {len(entries) - ai})")
+    else:
+        print("  - names: PSD native only")
 
 
 def _handle_annotate(args):

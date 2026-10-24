@@ -7,7 +7,7 @@
 本项目是一个**确定性、离线优先**的 PSD/PSB 解析 Skill。它不生成页面，也不依赖 AI 猜测已有属性，而是把设计稿转换为结构化、可校验、可追溯的 Design IR，作为下游还原或设计系统流程的输入。
 
 - **输入**：PSD / PSB
-- **输出**：Design IR（`design.json`）、几何测量、Token 候选、逐层 PNG、预览/标注图、独立 HTML 检查器、报告与 manifest
+- **输出**：Design IR（`design.json`）、几何测量、Token 候选、非文字图层 PNG、预览/标注图、独立 HTML 检查器、报告与 manifest
 - **解析内核**：`psd-tools` + Pillow + NumPy；Pydantic 模型加 JSON Schema 运行时校验
 - **运行方式**：CLI（`psd-inspector`），默认全离线，不访问网络
 
@@ -16,7 +16,7 @@
 | `adapters/` | 读取 PSD/PSB，产出原始图层与文档元数据 |
 | `extractors/` | 文字与外观（填充、描边、效果）原生属性提取 |
 | `analysis/` | 几何测量、空间关系、布局候选、Token 候选 |
-| `exporters/` | 预览与标注图、逐层资源、HTML 检查器、报告 |
+| `exporters/` | 预览与标注图、非文字图层资源、HTML 检查器、报告 |
 | `validation/` | Design IR 的 JSON Schema 校验 |
 | `pipeline.py` | 编排解析、分析、导出与 manifest 生成 |
 
@@ -30,8 +30,9 @@
 - ✅ **几何分析**: 计算相对坐标、间距、对齐关系、布局候选，全部标注为测量值
 - ✅ **Token 提取**: 生成颜色、字体、间距、边框、阴影等 Token 候选，需人工复核
 - ✅ **可视化**: 生成原图/标注预览图和独立 HTML 检查器
-- ✅ **资源导出**: 按图层导出 PNG（透明通道、偏移、尺寸、哈希、内容去重）
+- ✅ **资源导出**: 按非文字图层导出 PNG（透明通道、偏移、尺寸、哈希、内容去重）；文字层不导出，使用原生排版数据重建
 - ✅ **报告与校验**: 每次运行生成 extraction-summary，`--report` 生成详细报告；Design IR 通过 JSON Schema 校验
+- ✅ **AI 辅助命名**: 生成确定性命名上下文包，由宿主 Agent（Codex/Qoder）给出建议，CLI 校验并写入独立 `names.json`；不修改原生图层名
 - ✅ **可追溯**: 每个属性记录来源(source) 和置信度(confidence)
 - 🚧 **语义组件**: 独立识别 Button、Input、Card 等组件（P3，尚未实现）
 
@@ -82,6 +83,23 @@ psd-inspector annotate \
   --ir ./output/home/design.json \
   --show bounds,ids,spacing \
   --output ./output/home/annotated.png
+
+# AI 辅助命名：生成宿主 Agent 上下文包（含分组视觉裁剪图）
+psd-inspector names pack \
+  --ir ./output/home/design.json \
+  --output ./output/home/naming-pack.json
+
+# 宿主 Agent 生成命名候选后，校验并写入独立 names.json
+psd-inspector names apply \
+  --ir ./output/home/design.json \
+  --names ./output/home/naming-candidate.json \
+  --output ./output/home/names.json
+
+# 把语义名应用到独立检查器（树、画布标签、属性面板）
+psd-inspector viewer \
+  --ir ./output/home/design.json \
+  --names ./output/home/names.json \
+  --output ./output/home/viewer.html
 ```
 
 ## 输出结构（当前）
@@ -93,7 +111,7 @@ output/
 ├── geometry.json         # 测量关系、对齐、间距、布局候选
 ├── design-tokens.json    # Token 候选
 ├── assets/               # --export-assets
-│   ├── layer-previews/   # 图层 PNG（透明、原始尺寸）
+│   ├── layer-previews/   # 非文字图层 PNG（透明、原始尺寸）
 │   └── asset-index.json  # 图层 ID、坐标、尺寸、mask、哈希、去重关系
 ├── previews/
 │   ├── original.png      # psd-tools 合成预览
@@ -110,17 +128,38 @@ output/
 
 `fast` profile 只输出 `design.json`、`source-layers.json`、`reports/extraction-summary.json` 和 `manifest.json`；同时显式传入 `--export-assets`/`--report` 时才额外生成对应目录。
 
-语义组件树 `components.json` 仍在路线图中（P3）。
+语义组件树 `components.json` 仍在路线图中（P3）。`naming-pack.json` 和 `names.json` 由 `names` 子命令写入指定路径，不属于 `inspect` 的输出。
+
+## AI 辅助命名
+
+PSD 中常见的 `Rectangle 1`、`Group 1` 等重名图层无法直接作为组件名。该能力由宿主 Agent 执行，CLI 不调用任何模型，也不访问网络：
+
+1. `names pack`：输出 `naming-pack.json`，包含图层 ID、层级、边界、文字内容、字体、填充、资源路径、重名次数、确定性 `fallbackName`，以及 `layout.regionCandidates`、`roleHints`、`childKinds`、`childTextSamples`、`siblingNames` 和 UI 语义词表。
+2. 宿主 Agent：先查看 `visualEvidence.preview` 与各图层的 `visual.crop`，再按精确 ID 写入 `naming-candidate.json`，可带 `confidence` 和 `reason`。
+3. `names apply`：校验并生成独立 `names.json`。
+
+`names pack` 会从 `<ir-dir>/previews/original.png` 为可见分组、重名图层、以及无文字内容的文字层生成上下文裁剪图，写入 `<ir-dir>/naming-visuals/`。裁剪图自动加 32 文档像素内边距、最长边限制 512 px、按内容去重，并通过 `visual.crop`（相对 `visualEvidence.visualsDir`）引用。隐藏图层和非法边界会被跳过并计入 `visualEvidence.skipped`。可用 `--visuals none` 只生成元数据包，`--preview` 指定其他合成图，`--visuals-dir` 改变输出目录，`--max-edge` / `--padding` 调整裁剪参数。
+
+`layout.regionCandidates` 给出 `header`、`footer`、`sidebar-left`、`sidebar-right`、`hero`、`page-background`、`main-content` 等候选区域；`roleHints` 给出 `navigation`、`card`、`button`、`icon-row`、`media-gallery` 等候选语义，均只作为证据，不是原生事实。
+
+`names.json` 为每个图层记录 `originalName`（PSD 原生值）、`suggestedName`、`uniqueName`、`slug`、`source`（`ai_inferred` / `rule_based`）、`confidence`、`reason`、`disambiguated`。未提供建议的图层沿用确定性的原始名称；重复建议和重复 slug 会自动加后缀。候选文件中的 `source.irSha256` 必须与 pack 一致；未知 ID、重复建议、超长名称、控制字符和越界置信度会被拒绝。
+
+AI 名称仅用于代码标识（`uniqueName` / `slug`），不得写回 `design.json`，也不得作为原生 PSD 值或复刻证据。需要查看命名效果时，用 `viewer --names` 重新生成检查器：树形结构、画布标签和属性面板显示语义名，同时保留 PSD 原名、`source`、置信度与理由。
+
+真实文件 `Store_PC_D.psd` 的验证结果：255 个重名图层、24 个隐藏图层，生成 235 张可视证据裁剪图（307 个图层带视觉证据）；宿主 Agent 给出 67 个 AI 语义名（58 组、7 像素层、2 形状层，置信度 0.85–0.95），其余 403 层使用确定性规则名。`names apply` 输出 470 个唯一名称与 slug，无校验警告。
 
 ## 可视化检查器
 
 `viewer.html` 可直接在浏览器打开，无需本地服务器：
 
 - 图层边界按类型着色，悬停显示名称/尺寸/坐标
-- 点击图层查看 IR 记录、提取状态与属性来源
+- 点击图层行或画布边界框，预览区显示高对比选中框与名称标签，并自动滚动到可见位置；属性面板同步更新
 - 支持搜索名称/ID、显示隐藏图层
 - 可切换图层边界、名称、间距线、布局候选框
+- 加载 `names.json` 后显示语义名、AI 标记与 PSD 原名；`仅 AI 语义名` 默认只保留 AI 命名的标签，避免 470 层标签堆叠
 - 诊断警告直接展示在侧栏
+
+检查器中的命名只是展示层覆盖：`design.json`、`document`、`source.rawLayers[].name` 均保持不变。
 
 ## 工作流
 
@@ -160,7 +199,8 @@ graph TD
 
 ## 资源与报告说明
 
-- `assets/layer-previews/` 中的 PNG 是 psd-tools 对单个图层的栅格渲染，不是原生矢量导出；不保证与 Photoshop 完全一致（尤其是未支持的效果）。当前不生成 WebP/SVG。
+- `assets/layer-previews/` 中的 PNG 是 psd-tools 对非文字图层的栅格渲染，不是原生矢量导出；不保证与 Photoshop 完全一致（尤其是未支持的效果）。当前不生成 WebP/SVG。
+- 文字图层不导出 PNG，必须使用 `typography.character_runs` / `paragraph_runs` 重建；`asset-index.json` 的 `excludedTextLayers` 记录被排除的文字层数量。
 - 资源按 PNG 内容 SHA256 去重：相同内容的多个图层共用一个文件，`asset-index.json` 用 `duplicatedFrom` 记录来源图层。
 - 图层资源与预览 PNG 都不嵌入 ICC 配置：psd-tools 生成的 profile 带有运行时间戳，会导致相同输入产生不同哈希；色彩管理以原 PSD 为准。
 - `asset-index.json` 记录原始图层 ID、文档坐标、宽高、可见性、mask 标记、哈希和导出路径；隐藏图层也会导出，可通过 `visible` 区分。
@@ -192,11 +232,11 @@ graph TD
 
 **产物与工具**
 - [x] 合成预览与标注图（边界、图层 ID、实测间距），剥离 ICC 以保证可复现哈希
-- [x] 逐层 PNG 导出 + SHA256 内容去重 + `asset-index.json`
-- [x] 独立 HTML 检查器（图片与数据内嵌，无外部请求；标签自动避让碰撞）
+- [x] 非文字图层 PNG 导出 + SHA256 内容去重 + `asset-index.json`
+- [x] 独立 HTML 检查器（图片与数据内嵌，无外部请求；标签自动避让碰撞；点击图层行或画布边界框显示高对比选中框、名称标签并自动定位）
 - [x] `--report` 详细报告：设计规格、图层清单、不支持项、校验结果
-- [x] CLI：`inspect`、`layer get`、`geometry neighbors`、`tokens extract`、`annotate`
-- [x] 65 项单元/集成测试，覆盖 CLI、几何、Token、预览、资源、元数据与端到端流程
+- [x] CLI：`inspect`、`layer get`、`geometry neighbors`、`tokens extract`、`annotate`、`names pack/apply`、`viewer`
+- [x] 93 项单元/集成测试，覆盖 CLI、几何、Token、预览、资源、命名、元数据与端到端流程
 
 ### 已知限制
 

@@ -38,6 +38,44 @@ def test_asset_export_deduplicates_identical_layers(tmp_path):
     assert (tmp_path / "assets" / "asset-index.json").is_file()
 
 
+def test_asset_export_excludes_text_layers(tmp_path, monkeypatch):
+    class _FakeTextLayer:
+        layer_id = 42
+        name = "Headline"
+        kind = "type"
+
+        def is_group(self):
+            return False
+
+        def topil(self):
+            raise AssertionError("text layers must not be rasterized")
+
+    class _FakePSD:
+        def __iter__(self):
+            return iter([_FakeTextLayer()])
+
+    class _FakePsdImage:
+        @staticmethod
+        def open(handle):
+            return _FakePSD()
+
+    input_path = tmp_path / "sample.psd"
+    input_path.write_bytes(b"")
+    raw_layers = [
+        {"id": "layer-42", "source_layer_id": 42, "name": "Headline", "kind": "text"}
+    ]
+    monkeypatch.setattr(
+        "psd_inspector.exporters.asset_exporter.PSDImage", _FakePsdImage
+    )
+
+    result = export_layer_assets(input_path, raw_layers, tmp_path / "assets")
+
+    assert result["summary"]["exportedLayers"] == 0
+    assert result["summary"]["excludedTextLayers"] == 1
+    assert result["assets"] == []
+    assert "Text layers are excluded" in result["note"]
+
+
 def test_asset_png_bytes_are_deterministic(tmp_path):
     psd_path = _make_psd(tmp_path / "sample.psd")
     raw_layers = PsdToolsAdapter().get_layers(psd_path)

@@ -114,6 +114,52 @@ def test_viewer_is_standalone_and_embeds_data():
     assert html.count("<script") == 1
 
 
+def test_viewer_applies_semantic_names_and_keeps_native_name():
+    layers = [_layer("layer-a", 10, 10, 40, 20, name="Rectangle 1")]
+    names = {
+        "source": {"irSha256": "ignored-by-viewer"},
+        "layers": [
+            {
+                "id": "layer-a",
+                "uniqueName": "hero/primary-card",
+                "source": "ai_inferred",
+                "confidence": 0.92,
+                "reason": "Card artwork with a title and call to action.",
+                "disambiguated": False,
+            }
+        ],
+    }
+
+    html = build_viewer_html(
+        _design(layers), Image.new("RGB", (200, 120), "white"), names=names
+    )
+
+    assert "hero/primary-card" in html
+    assert '"display_name":"hero/primary-card"' in html
+    assert '"name_source":"ai_inferred"' in html
+    assert "Rectangle 1" in html
+    assert "Card artwork with a title and call to action." in html
+
+
+def test_viewer_escapes_semantic_names():
+    layers = [_layer("layer-a", 10, 10, 40, 20, name="Card")]
+    names = {
+        "layers": [
+            {
+                "id": "layer-a",
+                "uniqueName": "x</script><script>alert(1)</script>",
+                "source": "ai_inferred",
+            }
+        ]
+    }
+
+    html = build_viewer_html(
+        _design(layers), Image.new("RGB", (200, 120), "white"), names=names
+    )
+
+    assert html.count("</script>") == 1
+
+
 def test_viewer_embeds_mask_and_smart_object_metadata():
     layer = _layer("layer-a", 10, 10, 40, 20, kind="smart_object", name="Card")
     layer["mask"] = {
@@ -143,6 +189,23 @@ def test_viewer_embeds_mask_and_smart_object_metadata():
     assert '"background_color":7' in html
     assert '"path_count":2' in html
     assert "declutterLabels" in html
+
+
+def test_viewer_renders_visible_selection_overlay():
+    layers = [
+        _layer("layer-a", 10, 10, 40, 20, name="Card"),
+        _layer("layer-empty", 100, 60, 0, 0, kind="group", name="Empty group"),
+    ]
+    html = build_viewer_html(_design(layers), Image.new("RGB", (200, 120), "white"))
+
+    assert 'id="selectionRing"' in html
+    assert 'id="selectionTag"' in html
+    assert "function updateSelection" in html
+    assert "function revealSelection" in html
+    assert "scrollIntoView" in html
+    assert "0 0 0 5px rgba(47,128,237,.9)" in html
+    assert "boxWidth = 10;" not in html
+    assert "selectionRing.style.width = '12px';" in html
 
 
 def test_viewer_escapes_layer_names():

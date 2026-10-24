@@ -17,7 +17,7 @@ from psd_tools import PSDImage
 
 from ..adapters.psd_tools_adapter import PsdToolsAdapter
 
-ASSET_VERSION = "1.0.0"
+ASSET_VERSION = "1.1.0"
 ASSET_DIRNAME = "layer-previews"
 
 
@@ -26,7 +26,10 @@ def export_layer_assets(
     raw_layers: List[Dict[str, Any]],
     output_dir: Path,
 ) -> Dict[str, Any]:
-    """Render every non-group layer to PNG under ``output_dir/layer-previews``.
+    """Render every non-group, non-text layer to PNG under ``layer-previews``.
+
+    Text layers are excluded on purpose: they must be rebuilt from native
+    typography runs, and their raster renderings are not useful assets.
 
     Args:
         input_path: Source PSD/PSB file (read-only).
@@ -48,12 +51,14 @@ def export_layer_assets(
         if raw.get("source_layer_id") is not None
     }
     known_ids = {raw["id"] for raw in raw_layers}
+    kinds = {raw["id"]: raw.get("kind") for raw in raw_layers}
 
     assets: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
     by_hash: Dict[str, Dict[str, Any]] = {}
     files: List[str] = []
     total_bytes = 0
+    excluded_text = 0
 
     with open(input_path, "rb") as handle:
         psd = PSDImage.open(handle)
@@ -69,6 +74,9 @@ def export_layer_assets(
                 })
                 continue
             if layer.is_group():
+                continue
+            if kinds.get(layer_id) == "text":
+                excluded_text += 1
                 continue
 
             try:
@@ -144,13 +152,15 @@ def export_layer_assets(
         "note": (
             "PNG files are psd-tools raster renderings of individual layers. "
             "They are not native vector exports and may differ from Photoshop "
-            "for unsupported effects. Identical images are stored once."
+            "for unsupported effects. Identical images are stored once. "
+            "Text layers are excluded; rebuild them from native typography runs."
         ),
         "summary": {
             "exportedLayers": len(assets),
             "uniqueFiles": len(files),
             "deduplicatedLayers": len(assets) - len(files),
             "skippedLayers": len(skipped),
+            "excludedTextLayers": excluded_text,
             "totalBytes": total_bytes,
         },
         "assets": assets,
