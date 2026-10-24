@@ -114,6 +114,37 @@ def test_viewer_is_standalone_and_embeds_data():
     assert html.count("<script") == 1
 
 
+def test_viewer_embeds_mask_and_smart_object_metadata():
+    layer = _layer("layer-a", 10, 10, 40, 20, kind="smart_object", name="Card")
+    layer["mask"] = {
+        "bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+        "disabled": True,
+        "inverted": True,
+        "background_color": 7,
+        "has_real": False,
+    }
+    layer["vector_mask"] = {
+        "normalized_bounds": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        "disabled": False,
+        "inverted": False,
+        "fill_rule": 0,
+        "path_count": 2,
+    }
+    layer["smart_object_data"] = {
+        "kind": "data",
+        "filename": "card.psd",
+        "filesize_bytes": 1234,
+        "contents_extracted": False,
+    }
+
+    html = build_viewer_html(_design([layer]), Image.new("RGB", (200, 120), "white"))
+
+    assert "card.psd" in html
+    assert '"background_color":7' in html
+    assert '"path_count":2' in html
+    assert "declutterLabels" in html
+
+
 def test_viewer_escapes_layer_names():
     layers = [_layer("layer-a", 10, 10, 40, 20, name="x</script><script>alert(1)</script>")]
     html = build_viewer_html(_design(layers), Image.new("RGB", (200, 120), "white"))

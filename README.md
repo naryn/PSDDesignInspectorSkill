@@ -20,7 +20,7 @@
 | `validation/` | Design IR 的 JSON Schema 校验 |
 | `pipeline.py` | 编排解析、分析、导出与 manifest 生成 |
 
-历史规划文档已归档到 [`docs/archive/`](docs/archive/README.md)，当前能力与限制以本文件为准。
+历史规划文档已归档到 [`docs/archive/`](docs/archive/README.md)；完整能力矩阵与待办见 [`docs/FEATURE_MAP.md`](docs/FEATURE_MAP.md)，当前能力与限制以本文件为准。
 
 ## 特性
 
@@ -181,6 +181,8 @@ graph TD
 - [x] 文字样式：characterRuns / paragraphRuns，字号保留 pt 并给出 DPI 换算依据
 - [x] 矢量形状填充（`vscg`）、描边（`vstk`）、圆角、图层效果（阴影、内阴影、发光、颜色/渐变/图案叠加、描边）
 - [x] 无法表达的属性写入 `extraction.unsupported_properties`，不伪造字段
+- [x] 智能对象元数据：类型、文件名、大小、UUID、分辨率、变换框、内容哈希与外部链接
+- [x] 蒙版元数据：像素蒙版边界/禁用/反相/背景色，矢量蒙版归一化边界/填充规则/路径数
 - [x] 相对坐标、对齐组、间距组、组内 padding、兄弟图层邻近关系
 - [x] Flex / Grid / Absolute 布局候选（带证据与覆盖率校准后的置信度）
 - [x] 颜色、排版、间距、边框、阴影 Token 候选（含栅格采样主色，来源标注为测量值）
@@ -191,33 +193,32 @@ graph TD
 **产物与工具**
 - [x] 合成预览与标注图（边界、图层 ID、实测间距），剥离 ICC 以保证可复现哈希
 - [x] 逐层 PNG 导出 + SHA256 内容去重 + `asset-index.json`
-- [x] 独立 HTML 检查器（图片与数据内嵌，无外部请求）
+- [x] 独立 HTML 检查器（图片与数据内嵌，无外部请求；标签自动避让碰撞）
 - [x] `--report` 详细报告：设计规格、图层清单、不支持项、校验结果
 - [x] CLI：`inspect`、`layer get`、`geometry neighbors`、`tokens extract`、`annotate`
-- [x] 55+ 项单元/集成测试，覆盖 CLI、几何、Token、预览、资源、端到端流程
+- [x] 65 项单元/集成测试，覆盖 CLI、几何、Token、预览、资源、元数据与端到端流程
 
 ### 已知限制
 
 - `deep` profile 当前与 `full` 等价，仅多输出一条诊断警告；像素级深度分析尚未实现。
 - `sourceBounds` 是权威几何，`visibleBounds` 目前镜像它；未计算像素级可见边界与效果边界。
-- 图层蒙版、矢量蒙版、剪贴蒙版只记录标志位，不导出蒙版内容，标记为 `unsupported_properties`。
-- 智能对象识别为图层类型，但不解析内部文档、外部引用或链接信息。
+- 图层蒙版、矢量蒙版、剪贴蒙版只提取元数据或标志位，不导出蒙版像素、矢量路径或成员关系，相关字段标记为 `unsupported_properties`。
+- 智能对象已提取类型、文件名、大小、UUID、变换框、内容哈希和外部链接，但不解析内部文档或导出内容。
 - 字体缺失检测、栅格化文字识别（OCR）未实现；字体名称直接来自 PSD。
 - 资源仅导出 PNG（psd-tools 栅格渲染），不生成 SVG/WebP 或原生矢量导出。
 - 组件树 `components.json`、`componentPatterns`、重复卡片模式识别未实现。
 - 大文件采用一次性读取，尚无流式解析、缓存或并行限制。
-- 检查器的标注标签在密集区域可能重叠，尚未做碰撞避让。
 
 ### 后续待办（按优先级）
 
 **P1 — 数据完整性**
-- [ ] 解析智能对象内部文档与外部引用，写入 `smart_object_link` / `smart_object_data`
-- [ ] 提取图层蒙版、矢量蒙版、剪贴蒙版内容
+- [ ] 解析智能对象内部文档与嵌套图层，写入可追溯的子结构
+- [ ] 导出蒙版像素与矢量蒙版路径，并纳入资源索引
+- [ ] 建立剪贴蒙版成员关系
 - [ ] 像素级 `visibleBounds` / `effectBounds`
 - [ ] 本地字体可用性检测，明确标记缺失字体系列
 
 **P2 — 分析与可视化**
-- [ ] 检查器标签碰撞避让、默认视图与筛选体验优化
 - [ ] 重复组件/卡片模式识别，填充 `componentPatterns`
 - [ ] 语义组件树 `components.json`（Button、Input、Card 等）
 - [ ] `deep` profile 的真实像素测量（颜色分布、边界、阴影扩散）

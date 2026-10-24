@@ -227,6 +227,7 @@ class PsdToolsAdapter(PSDBaseAdapter):
                 typography_warnings = [f"Typography extraction failed: {error}"]
 
         appearance, appearance_warnings, unsupported_effects = extract_appearance(layer)
+        smart_object_link, smart_object_data = self._smart_object_metadata(layer)
 
         return {
             "id": layer_id,
@@ -249,7 +250,11 @@ class PsdToolsAdapter(PSDBaseAdapter):
             },
             "has_mask": bool(layer.has_mask()),
             "has_vector_mask": bool(layer.has_vector_mask()),
+            "mask_data": self._mask_metadata(layer),
+            "vector_mask_data": self._vector_mask_metadata(layer),
             "clipping": bool(layer.clipping),
+            "smart_object_link": smart_object_link,
+            "smart_object_data": smart_object_data,
             "effects": [type(effect).__name__ for effect in layer_effects],
             "appearance": appearance,
             "appearance_warnings": appearance_warnings,
@@ -258,6 +263,118 @@ class PsdToolsAdapter(PSDBaseAdapter):
             "typography_warnings": typography_warnings,
             "sampled_colors": self._sample_colors(layer),
         }
+
+    @staticmethod
+    def _smart_object_metadata(layer: Any) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Read smart object metadata without extracting or decoding its contents."""
+        if layer.kind != "smartobject":
+            return None, None
+        try:
+            smart_object = layer.smart_object
+        except Exception:
+            return None, None
+
+        data: Dict[str, Any] = {}
+        accessors = (
+            ("kind", lambda: smart_object.kind),
+            ("filename", lambda: smart_object.filename),
+            ("filetype", lambda: smart_object.filetype),
+            ("filesize_bytes", lambda: int(smart_object.filesize)),
+            ("unique_id", lambda: smart_object.unique_id),
+            ("resolution_dpi", lambda: float(smart_object.resolution)),
+            ("is_psd", lambda: bool(smart_object.is_psd())),
+        )
+        for key, getter in accessors:
+            try:
+                data[key] = getter()
+            except Exception:
+                continue
+        try:
+            box = smart_object.transform_box
+            data["transform_box"] = [float(value) for value in box] if box else None
+        except Exception:
+            pass
+
+        link = None
+        if data.get("kind") == "data":
+            try:
+                data["embedded_sha256"] = hashlib.sha256(smart_object.data).hexdigest()
+            except Exception:
+                pass
+        elif data.get("kind") in ("external", "alias"):
+            link = PsdToolsAdapter._external_object_path(smart_object)
+
+        if not data:
+            return None, None
+        data["contents_extracted"] = False
+        return link, data
+
+    @staticmethod
+    def _external_object_path(smart_object: Any) -> Optional[str]:
+        # psd-tools can open external objects but exposes no public link path.
+        try:
+            linked_file = smart_object._data.linked_file
+            for key in (b"fullPath", b"relPath"):
+                entry = linked_file.get(key) if hasattr(linked_file, "get") else linked_file[key]
+                value = getattr(entry, "value", entry)
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", "replace")
+                value = value.replace("\x00", "").strip()
+                if value:
+                    return value[7:] if value.startswith("file://") else value
+        except Exception:
+            pass
+        try:
+            return smart_object.filename or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _mask_metadata(layer: Any) -> Optional[Dict[str, Any]]:
+        if not layer.has_mask():
+            return None
+        try:
+            mask = layer.mask
+            left, top, right, bottom = mask.bbox
+            background = mask.background_color
+            return {
+                "bounds": {
+                    "x": int(left),
+                    "y": int(top),
+                    "width": int(right - left),
+                    "height": int(bottom - top),
+                },
+                "disabled": bool(mask.disabled),
+                "inverted": bool(getattr(mask.flags, "invert_mask", False)),
+                "background_color": int(background) if background is not None else None,
+                "has_real": bool(mask.has_real()),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def _vector_mask_metadata(layer: Any) -> Optional[Dict[str, Any]]:
+        if not layer.has_vector_mask():
+            return None
+        try:
+            mask = layer.vector_mask
+            if mask is None:
+                return None
+            left, top, right, bottom = mask.bbox
+            return {
+                "normalized_bounds": {
+                    "x": float(left),
+                    "y": float(top),
+                    "width": float(right - left),
+                    "height": float(bottom - top),
+                },
+                "disabled": bool(mask.disabled),
+                "inverted": bool(mask.inverted),
+                "fill_rule": int(mask.initial_fill_rule),
+                "path_count": len(mask.paths or []),
+            }
+        except Exception:
+            return None
 
     @staticmethod
     def _layer_id(layer: Any, fallback_key: str) -> str:

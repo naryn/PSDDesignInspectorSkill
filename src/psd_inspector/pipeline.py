@@ -25,9 +25,11 @@ from .models.layer import (
     Glow,
     GradientOverlay,
     Layer,
+    MaskMetadata,
     PatternOverlay,
     Shadow,
     Stroke,
+    VectorMaskMetadata,
 )
 from .models.typography import Typography
 from .validation import validate_design_ir
@@ -393,6 +395,13 @@ class DesignIRPipeline:
         typography_raw = raw.get('typography')
         typography = Typography(**typography_raw) if typography_raw else None
 
+        mask_raw = raw.get('mask_data')
+        mask = MaskMetadata(**mask_raw) if mask_raw else None
+        vector_mask_raw = raw.get('vector_mask_data')
+        vector_mask = VectorMaskMetadata(**vector_mask_raw) if vector_mask_raw else None
+        smart_object_data = raw.get('smart_object_data')
+        smart_object_link = raw.get('smart_object_link')
+
         property_sources = {
             'geometry.source_bounds': {'source': 'psd_native', 'confidence': 1.0},
             'appearance.opacity': {'source': 'psd_native', 'confidence': 1.0},
@@ -429,6 +438,26 @@ class DesignIRPipeline:
                 }
         if typography is not None:
             property_sources['typography.character_runs'] = {
+                'source': 'psd_native',
+                'confidence': 1.0,
+            }
+        if mask is not None:
+            property_sources['mask.metadata'] = {
+                'source': 'psd_native',
+                'confidence': 1.0,
+            }
+        if vector_mask is not None:
+            property_sources['vector_mask.metadata'] = {
+                'source': 'psd_native',
+                'confidence': 1.0,
+            }
+        if smart_object_data is not None:
+            property_sources['smart_object_data'] = {
+                'source': 'psd_native',
+                'confidence': 1.0,
+            }
+        if smart_object_link is not None:
+            property_sources['smart_object_link'] = {
                 'source': 'psd_native',
                 'confidence': 1.0,
             }
@@ -480,8 +509,10 @@ class DesignIRPipeline:
             masks=[],
             vector_masks=[],
             clipping_groups=[],
-            smart_object_link=None,
-            smart_object_data=None,
+            mask=mask,
+            vector_mask=vector_mask,
+            smart_object_link=smart_object_link,
+            smart_object_data=smart_object_data,
             export_paths=[],
             extraction=extraction_info
         )

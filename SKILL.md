@@ -81,9 +81,11 @@ output requires `--export-assets` and `--report` respectively.
 - Supports PSD and PSB formats only
 - Requires Python 3.9+ with psd-tools, Pillow, Pydantic and jsonschema
 - Offline processing by default, no cloud dependencies
-- Smart object contents are not extracted; such layers are marked
+- Smart object metadata is extracted (`smart_object_data`, `smart_object_link`),
+  but its contents are not decoded or exported; such layers are marked
   `smart_object_contents` in `extraction.unsupported_properties`
-- Layer, vector and clipping masks are flagged but their contents are not extracted
+- Pixel and vector mask metadata is extracted (`mask`, `vector_mask`), but mask
+  pixels, vector paths and clipping relationships are not exported
 - `visibleBounds` mirrors `sourceBounds`; pixel-level visible/effect bounds are
   not computed
 - Semantic components (`components.json`, `componentPatterns`) are not generated
@@ -163,6 +165,10 @@ psd-inspector annotate \
   with a DPI conversion basis for `effective_font_size_px`.
 - Shape fills come from `vscg`, stroke colors from `vstk`. Effects that the IR cannot
   represent (e.g. BevelEmboss/Satin) are listed in `extraction.unsupported_properties`.
+- `smart_object_data` is native metadata only (`contents_extracted: false`), never
+  parsed inner layers. `smart_object_link` is set for external/alias objects.
+- `mask.bounds` uses document pixels; `vector_mask.normalized_bounds` uses 0–1
+  document-relative coordinates and is not a layer-space rectangle.
 - Token names are candidates and require human review. Sampled colors are statistical.
 - `viewer.html` is fully standalone: preview and IR subset are embedded.
 - `assets/layer-previews/` contains psd-tools raster renderings, not SVG or native

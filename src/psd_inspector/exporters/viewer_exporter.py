@@ -58,6 +58,10 @@ def _viewer_payload(design_ir: Dict[str, Any], preview_uri: str) -> Dict[str, An
             "relative": geometry.get("relative_to_parent", {}),
             "opacity": layer.get("appearance", {}).get("opacity", 1.0),
             "blend_mode": layer.get("appearance", {}).get("blend_mode", "normal"),
+            "mask": layer.get("mask"),
+            "vector_mask": layer.get("vector_mask"),
+            "smart_object_link": layer.get("smart_object_link"),
+            "smart_object_data": layer.get("smart_object_data"),
             "extraction": {
                 "status": extraction.get("status"),
                 "source": extraction.get("source"),
@@ -263,6 +267,7 @@ document.getElementById('layerCount').textContent = '(' + DATA.layers.length + '
 
 const boxById = new Map();
 const labelById = new Map();
+let labelsCollided = new Set();
 
 function buildOverlays() {
   let index = 0;
@@ -292,6 +297,34 @@ function buildOverlays() {
     labelsRoot.appendChild(label);
     labelById.set(layer.id, label);
     index += 1;
+  }
+}
+
+function overlaps(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function declutterLabels(candidate) {
+  labelsCollided = new Set();
+  const placed = [];
+  const stageRect = stage.getBoundingClientRect();
+  for (const [id, label] of labelById) {
+    label.style.display = 'none';
+    const layer = byId.get(id);
+    if (!layer || !candidate(layer)) continue;
+    label.style.display = '';
+    const rect = label.getBoundingClientRect();
+    if (!rect.width || !rect.height) { label.style.display = 'none'; continue; }
+    const box = {
+      left: rect.left - stageRect.left, top: rect.top - stageRect.top,
+      right: rect.right - stageRect.left, bottom: rect.bottom - stageRect.top
+    };
+    if (placed.some(other => overlaps(other, box))) {
+      labelsCollided.add(id);
+      label.style.display = 'none';
+    } else {
+      placed.push(box);
+    }
   }
 }
 
@@ -468,6 +501,26 @@ function renderDetails(layer) {
   add('相对父级', (relative.x ?? '-') + ', ' + (relative.y ?? '-'));
   add('不透明度', String(layer.opacity));
   add('混合模式', layer.blend_mode || 'normal');
+  if (layer.mask) {
+    const mask = layer.mask;
+    const bounds = mask.bounds || {};
+    add('像素蒙版', (bounds.width ?? 0) + ' × ' + (bounds.height ?? 0) +
+      (mask.disabled ? ' · 禁用' : '') + (mask.inverted ? ' · 反相' : ''));
+  }
+  if (layer.vector_mask) {
+    const mask = layer.vector_mask;
+    const bounds = mask.normalized_bounds || {};
+    const percent = (value) => Number((Number(value || 0) * 100).toFixed(1)) + '%';
+    add('矢量蒙版', percent(bounds.width) + ' × ' + percent(bounds.height) +
+      ' · ' + (mask.path_count || 0) + ' 路径' + (mask.disabled ? ' · 禁用' : ''));
+  }
+  if (layer.smart_object_data) {
+    const object = layer.smart_object_data;
+    add('智能对象', (object.kind || 'unknown') + ' · ' + (object.filename || '(unnamed)'));
+    if (object.filesize_bytes != null) add('对象大小', object.filesize_bytes + ' bytes');
+    add('内容已解析', object.contents_extracted ? '是' : '否');
+  }
+  if (layer.smart_object_link) add('外部链接', layer.smart_object_link);
   add('提取状态', extraction.status || 'unknown');
   add('来源', extraction.source || 'unknown');
   detailsRoot.appendChild(dl);
@@ -509,9 +562,11 @@ function applyVisibility() {
   const showSpacing = document.getElementById('toggleSpacing').checked;
   const showLayout = document.getElementById('toggleLayout').checked;
   const showHidden = document.getElementById('toggleHidden').checked;
+  const matchesLayer = (layer) =>
+    !search || ((layer.name || '') + ' ' + layer.id).toLowerCase().includes(search);
 
   for (const layer of DATA.layers) {
-    const matches = !search || ((layer.name || '') + ' ' + layer.id).toLowerCase().includes(search);
+    const matches = matchesLayer(layer);
     const visible = showHidden || isVisible(layer);
     const box = boxById.get(layer.id);
     if (box) {
@@ -519,13 +574,19 @@ function applyVisibility() {
       box.classList.toggle('hide-bounds', !showBounds);
       box.classList.toggle('dim', search.length > 0 && !matches);
     }
-    const label = labelById.get(layer.id);
-    if (label) {
-      label.classList.toggle('hide-label', !showLabels || !showBounds || !visible);
-      label.style.display = (!showLabels || !showBounds || !visible) ? 'none' : '';
-      label.style.opacity = (search && !matches) ? '0.2' : '1';
-    }
   }
+
+  // Greedy top-most-first placement: a label that would overlap an already
+  // visible label is hidden until the user filters or zooms in.
+  declutterLabels(layer =>
+    showLabels && showBounds && (showHidden || isVisible(layer)) && matchesLayer(layer)
+  );
+  for (const [id, label] of labelById) {
+    if (labelsCollided.has(id)) continue;
+    const layer = byId.get(id);
+    label.style.opacity = (search && layer && !matchesLayer(layer)) ? '0.2' : '1';
+  }
+
   gapsRoot.style.display = showSpacing ? '' : 'none';
   layoutsRoot.style.display = showLayout ? '' : 'none';
   for (const row of listRoot.children) {
@@ -542,6 +603,8 @@ for (const id of ['search','toggleBounds','toggleLabels','toggleSpacing','toggle
   document.getElementById(id).addEventListener('input', applyVisibility);
   document.getElementById(id).addEventListener('change', applyVisibility);
 }
+document.getElementById('preview').addEventListener('load', () => applyVisibility());
+window.addEventListener('resize', () => applyVisibility());
 document.getElementById('preview').src = DATA.preview;
 applyVisibility();
 </script>

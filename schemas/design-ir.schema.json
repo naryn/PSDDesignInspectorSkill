@@ -157,6 +157,13 @@
         "coordinate_space_id": {"type": "string"},
         "geometry": {"$ref": "#/definitions/Geometry"},
         "appearance": {"$ref": "#/definitions/Appearance"},
+        "masks": {"type": "array", "items": {"type": "string"}},
+        "vector_masks": {"type": "array", "items": {"type": "string"}},
+        "clipping_groups": {"type": "array", "items": {"type": "string"}},
+        "mask": {"type": ["object", "null"]},
+        "vector_mask": {"type": ["object", "null"]},
+        "smart_object_link": {"type": ["string", "null"]},
+        "smart_object_data": {"type": ["object", "null"]},
         "extraction": {"$ref": "#/definitions/ExtractionInfo"}
       }
     },

@@ -417,6 +417,28 @@ class ExtractionInfo(BaseModel):
         }
 
 
+class MaskMetadata(BaseModel):
+    """Native pixel-mask metadata. Mask pixels are not exported here."""
+
+    bounds: Dict[str, int] = Field(..., description="Mask bounds in document coordinates")
+    disabled: bool = Field(False, description="Mask visibility flag")
+    inverted: bool = Field(False, description="Mask inversion flag")
+    background_color: Optional[int] = Field(None, description="Mask background grayscale value")
+    has_real: bool = Field(False, description="Whether combined pixel/vector mask data is applied")
+
+
+class VectorMaskMetadata(BaseModel):
+    """Native vector-mask metadata. Mask paths are not converted to IR geometry."""
+
+    normalized_bounds: Dict[str, float] = Field(
+        ..., description="Path bounds normalized to the document (0.0-1.0)"
+    )
+    disabled: bool = Field(False, description="Vector mask visibility flag")
+    inverted: bool = Field(False, description="Vector mask inversion flag")
+    fill_rule: Optional[int] = Field(None, description="Native initial fill rule")
+    path_count: int = Field(0, description="Number of paths in the vector mask")
+
+
 class Layer(BaseModel):
     """Complete layer representation."""
     
@@ -443,9 +465,13 @@ class Layer(BaseModel):
     masks: List[str] = Field(default_factory=list, description="Mask references")
     vector_masks: List[str] = Field(default_factory=list, description="Vector mask references")
     clipping_groups: List[str] = Field(default_factory=list, description="Clipping mask members")
+    mask: Optional[MaskMetadata] = Field(None, description="Native pixel-mask metadata")
+    vector_mask: Optional[VectorMaskMetadata] = Field(
+        None, description="Native vector-mask metadata"
+    )
     
     smart_object_link: Optional[str] = Field(None, description="Smart object external link path")
-    smart_object_data: Optional[Dict[str, Any]] = Field(None, description="Smart object embedded data")
+    smart_object_data: Optional[Dict[str, Any]] = Field(None, description="Smart object metadata")
     
     export_paths: List[str] = Field(default_factory=list, description="Exported asset paths")
     
@@ -469,6 +495,8 @@ class Layer(BaseModel):
                 "masks": [],
                 "vector_masks": [],
                 "clipping_groups": [],
+                "mask": None,
+                "vector_mask": None,
                 "smart_object_link": None,
                 "smart_object_data": None,
                 "export_paths": [],
