@@ -1,5 +1,8 @@
 # PSD Design Inspector Skill — PSD 设计稿全量解析 Skill 详细技术设计
 
+> **已归档（2026-10-24）**：本文是初始 V1.0 设计，包含尚未实现的规划能力。
+> 当前实现状态、功能说明与待办请以仓库根目录的 [`README.md`](../../README.md) 和 [`SKILL.md`](../../SKILL.md) 为准。
+
 > 版本：V1.0  
 > 目标用户：Codex / Claude Code / AI Agent / 前端开发团队  
 > 项目名称：`psd-design-inspector`  

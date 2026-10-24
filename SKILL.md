@@ -83,6 +83,11 @@ output requires `--export-assets` and `--report` respectively.
 - Offline processing by default, no cloud dependencies
 - Smart object contents are not extracted; such layers are marked
   `smart_object_contents` in `extraction.unsupported_properties`
+- Layer, vector and clipping masks are flagged but their contents are not extracted
+- `visibleBounds` mirrors `sourceBounds`; pixel-level visible/effect bounds are
+  not computed
+- Semantic components (`components.json`, `componentPatterns`) are not generated
+- Layer assets are raster PNG only; SVG/WebP and native vector export are not produced
 - Handles corrupted or incomplete PSDs gracefully
 - PSD files are processed in memory; streaming and caching are not implemented
 
