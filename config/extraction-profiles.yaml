@@ -1,0 +1,109 @@
+# Extraction Profile Definitions
+
+profiles:
+  fast:
+    description: "Fast extraction - native properties only"
+    settings:
+      extract_geometry: false
+      extract_text: true
+      extract_shapes: true
+      extract_colors: true
+      compute_spatial_graph: false
+      detect_layout_hypotheses: false
+      extract_tokens: false
+      export_assets: false
+      generate_report: false
+      
+    priority:
+      document_metadata: required
+      layer_tree: required
+      layer_geometry: required
+      layer_appearance: optional
+      
+  full:
+    description: "Full extraction - complete analysis (recommended)"
+    settings:
+      extract_geometry: true
+      extract_text: true
+      extract_shapes: true
+      extract_colors: true
+      extract_effects: true
+      compute_spatial_graph: true
+      detect_layout_hypotheses: true
+      extract_tokens: true
+      export_assets: true
+      generate_report: true
+      
+    priority:
+      document_metadata: required
+      layer_tree: required
+      layer_geometry: required
+      layer_appearance: required
+      text_content: required
+      spatial_relationships: required
+      layout_inference: recommended
+      design_tokens: required
+      semantic_components: recommended
+      
+  deep:
+    description: "Deep extraction - includes visual inference"
+    settings:
+      extract_geometry: true
+      extract_text: true
+      extract_shapes: true
+      extract_colors: true
+      extract_effects: true
+      compute_spatial_graph: true
+      detect_layout_hypotheses: true
+      extract_tokens: true
+      export_assets: true
+      generate_report: true
+      pixel_analysis: true
+      visual_inference: true
+      
+    priority:
+      all_full_settings: true
+      rasterized_layer_analysis: recommended
+      complex_transform_handling: required
+      ai_visual_enhancement: recommended
+
+# Feature support matrix
+features:
+  native_parsing:
+    supported_by: ["psd-tools"]
+    quality: high
+    
+  geometry_computation:
+    supported_by: ["geometry_engine"]
+    quality: high
+    
+  pixel_analysis:
+    supported_by: ["opencv", "vision_model"]
+    quality: medium
+    requires: "pixel_analysis enabled in profile"
+    
+  layout_detection:
+    supported_by: ["layout_detector"]
+    quality: high
+    
+  component_recognition:
+    supported_by: ["component_detector", "vision_model"]
+    quality: medium
+    
+  token_extraction:
+    supported_by: ["token_extractor"]
+    quality: high
+
+# Performance hints
+performance:
+  fast:
+    estimated_time_multiplier: 1.0
+    memory_mb: 256
+    
+  full:
+    estimated_time_multiplier: 3.0
+    memory_mb: 1024
+    
+  deep:
+    estimated_time_multiplier: 10.0
+    memory_mb: 4096

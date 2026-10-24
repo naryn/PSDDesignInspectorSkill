@@ -1,0 +1,112 @@
+# Semantic Component Detection Rules
+
+component_rules:
+  
+  button:
+    indicators:
+      - name_contains: ["btn", "button", "click"]
+      - shape: rectangle
+      - has_text_content: true
+      - has_fill: true
+      - has_border_or_radius: true
+      - typical_size:
+        min_width: 60
+        min_height: 24
+    confidence_weights:
+      name_match: 0.3
+      shape_match: 0.2
+      text_content: 0.3
+      size_match: 0.2
+      
+  input_field:
+    indicators:
+      - shape: rectangle
+      - has_border: true
+      - empty_or_placeholder: true
+      - typical_dimensions:
+        height_range: [28, 60]
+        width_range: [120, 400]
+    confidence_weights:
+      shape_match: 0.4
+      border_present: 0.3
+      size_match: 0.3
+      
+  card:
+    indicators:
+      - shape: rectangle
+      - contains_children: true
+      - has_shadow_or_elevation: true
+      - has_border_radius: true
+    child_requirements:
+      min_children: 2
+      max_children: 10
+    confidence_weights:
+      structure: 0.5
+      elevation: 0.3
+      radius: 0.2
+      
+  navigation:
+    indicators:
+      - layout_pattern: horizontal_list or vertical_list
+      - children_identical_size: true
+      - repeated_structure: true
+      - position: top or side or bottom
+    confidence_weights:
+      layout_pattern: 0.4
+      repetition: 0.4
+      position: 0.2
+      
+  icon:
+    indicators:
+      - small_square: true
+      - no_text_content: true
+      - simple_shape: true
+      - typical_size:
+        max_width: 64
+        max_height: 64
+    confidence_weights:
+      size: 0.5
+      simplicity: 0.3
+      isolation: 0.2
+      
+  dialog_modal:
+    indicators:
+      - centered_position: true
+      - overlay_background: true
+      - contained_children: true
+      - large_bounds: true
+    confidence_weights:
+      position: 0.3
+      background: 0.3
+      containment: 0.4
+
+# Naming conventions
+naming_hints:
+  camelCase: ["loginBtn", "submitBtn", "closeIcon"]
+  kebabCase: ["login-button", "submit-button"]
+  snake_case: ["login_btn", "close_icon"]
+  pascalCase: ["LoginForm", "CardItem"]
+
+# Accessibility suggestions
+accessibility_prompts:
+  button_without_label: "Add visible text or aria-label"
+  image_no_alt: "Provide alt text description"
+  color_only_indication: "Use additional visual cue besides color"
+
+# Layout patterns to detect
+layout_patterns:
+  flex_row:
+    detection_criteria:
+      - aligned_vertical_center: true
+      - equal_height: true
+      - horizontal_spacing: even
+  flex_column:
+    detection_criteria:
+      - aligned_horizontal_center: true
+      - equal_width: true
+      - vertical_spacing: even
+  grid:
+    detection_criteria:
+      - regular_rows: true
+      - regular_columns: true
+      - uniform_cell_sizes: true

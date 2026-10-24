@@ -1,0 +1,73 @@
+# PSD Design Inspector Configuration
+
+## Extraction Profiles
+
+### Fast Profile
+- Minimal extraction: layer tree, basic geometry, visibility
+- Quick processing for structural overview
+- No geometric analysis or token extraction
+
+### Full Profile (Recommended)
+- Complete layer properties and styles
+- Geometric relationships and spatial graph
+- Design token extraction
+- Asset export preparation
+
+### Deep Profile
+- Full profile + pixel measurements
+- Advanced visual inference when needed
+- Complex rasterized layer analysis
+
+## AI Configuration
+
+```yaml
+ai:
+  enabled: true
+  provider: openai-compatible
+  only_for_unsupported_layers: true
+  allow_external_upload: false
+  
+vision:
+  model: local-or-cloud # depending on privacy requirements
+  max_concurrent: 2
+```
+
+## Output Settings
+
+```yaml
+output:
+  format: json
+  include_assets: true
+  asset_formats:
+    - png
+    - webp
+    - svg_when_applicable
+  annotation:
+    show_bounds: true
+    show_ids: true
+    show_spacing: false
+```
+
+## Parsing Behavior
+
+```yaml
+parse:
+  smart_objects:
+    max_nesting_depth: 5
+    follow_external_links: false
+  text:
+    extract_character_runs: true
+    fallback_missing_fonts: false
+  colors:
+    convert_to_srgb: true
+    preserve_raw_values: true
+```
+
+## Performance
+
+```yaml
+performance:
+  max_memory_mb: 4096
+  parallel_processing: true
+  cache_intermediate_results: true
+```
